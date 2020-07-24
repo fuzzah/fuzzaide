@@ -1,0 +1,39 @@
+# Fuzzaide
+## Tools
+Most of these tools were born due to extraordinary laziness of their author. Tools are 'probably' not production ready yet.
+### appverif_export_all.au3
+This AutoIt script can be used with Application Verifier to export ALL available execution logs to some directory (**this was only tested on appverif version 10.0 x64 running on Windows 10 x64**).<br>
+Application Verifier (appverif) is a Windows-specific program from Microsoft used to sanitize programs on the fly with different checks to detect misuse of memory handling functions and whole bunch of other things. Its indended use is to launch tested application under WinDBG and manually inspect the issues, but Application Verifier also saves some run information as ".dat" binary files. User can then extract stack traces from crashing runs recorded in ".dat" files (export to XML files) manually one by one.<br>
+Unfortunately Application Verifier does not provide a way to export all the logs at once. This script automates appverif UI to enumerate all the log entries and export each one of them as XML file.<br>
+How to use this script:
+1. Add your tested program to Application Verifier.
+2. Run the program with all the test cases you need, how many times you want.
+3. Application Verifier logs should now contain some entries (crashing ones will probably be marked with numbers in "Error" column).
+4. Run this AutoIt script from **elevated** command prompt: `AutoIt3_x64.exe .\appverif_export_all.au3 C:\appverif_logs_xml`
+5. You should see blinking "Export Log" dialog window. By the end of script run, your directory should contain ".dat.xml" files.
+### argv-fuzz-cook.py
+This Python script prepares test cases for fuzzing command line arguments with use of argv-fuzz-inl.h file from AFL repository. This is done by inserting \x00 between arguments and \x00\x00 in the end of arguments list and outputting it in binary format suitable for writing directly to file or passing to fuzzed program via stdin.<br>
+How to use this script:
+1. Find out correct command line for fuzzed application.<br>Let's say your app is "myapp" in current directory and it accepts argument "--check-all".
+2. Pass program arguments to argv-fuzz-cook.py like this: `./argv-fuzz-cook.py ./myapp --check-all`
+3. If you need it to be saved in file:  `./argv-fuzz-cook.py ./myapp --check-all > in/1`
+4. If you need C-string representation: `./argv-fuzz-cook.py -c ./myapp --check-all`
+### dupmanage.py
+This Python script is in half-abandoned half-unfinished state. Its final purpose is to manage groups of duplicate files, for example extract only files with unique contents from some wildcarded path. As of now it only forms and shows groups of files with duplicate contents.
+### split-dir-contents.py
+This Python script may be used to "split" given directory into multiple directories by copying/moving files. For example, let's say some tool can only work with up to 100 files, otherwise it hangs.<br>
+In this case you can invoke split-dir-contents.py as follows:<br>
+```
+./split-dir-contents.py -i myfiles -o splitted -n 100
+```
+If directory 'myfiles' contains 950 files you'll end up with 10 directories named splitted0 - splitted9 each containing not more than 100 files (directory splitted9 will contain 50 files).<br>
+### split-file-contents.py
+This Python script splits one file into few files to create samples for reproducing crashes/hangs. This is useful when tested application reads input from many files, but you have implemented fuzzing harness to read inputs from one fuzzed file to simultaneously fuzz multiple files.<br>
+Two modes of splitting are implemented: split input file equally (exact naming of output files supported) or split input file to chunks of not more than size specified.<br>
+Invocation example:
+```
+./split-file-contents.py -i crashcase -e 2 --names "player.dxt,player.obj" -o reproduce
+```
+This will equally split file 'crashcase' into two files, file 'reproduce/player.dxt' will contain the first half of file 'crashcase' and 'reproduce/player.obj' will contain the second half.<br>
+Of course **it is assumed that your fuzzing harness splits input file in the same manner**.<br>
+See --help for more info and check script code to see how it exactly works.
