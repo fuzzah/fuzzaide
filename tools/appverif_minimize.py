@@ -194,7 +194,7 @@ def main():
         
         if headsize is not None:
             traces = list(map(lambda t: "\n".join(t.split("\n")[0:headsize+1]), traces))
-		
+        
         return traces
     
     trace2log = dict()
@@ -207,13 +207,13 @@ def main():
         
         traces = extract_traces(logfname, args.trace_head)
         if traces is not None:
-			for trace in traces:
-				if trace in trace2log:
-					trace2log[trace].append(logfname)
-				else:
-					trace2log[trace] = [logfname]
-				
-			log2trace[logfname] = traces
+            for trace in traces:
+                if trace in trace2log:
+                    trace2log[trace].append(logfname)
+                else:
+                    trace2log[trace] = [logfname]
+            
+            log2trace[logfname] = traces
         
         
     if len(trace2log) < 1:
