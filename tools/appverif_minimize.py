@@ -10,7 +10,7 @@ import sys
 import glob
 import shutil
 import argparse
-from xml.sax import saxutils
+from xml.sax.saxutils import unescape as sax_unescape
 
 def main():
     
@@ -21,8 +21,10 @@ def main():
     parser.add_argument('-L','--logs-out', metavar='MINIMIZED_LOGS_PATH', help='path where to save minimized AppVerifier XML logs', default=None)
     parser.add_argument('-C','--cases-out', metavar='MINIMIZED_CASES_PATH', help='path where to save minimized cases (-c required)', default=None)
     
+    parser.add_argument('--trace-head', metavar='NUM_LINES', help='only detect similarities in first NUM_LINES lines of stack traces (use with care)', type=int, default=None)
     parser.add_argument('-f','--force', help='allow saving to non-empty directories and overwriting existing files (-ff to cleanup existing files)', action='count', default=0)
     parser.add_argument('-v','--verbose', help='show discovered groups (enabled if "out" params omitted)', action='store_true')
+    
     
     if len(sys.argv) < 2:
         parser.print_help()
@@ -176,7 +178,7 @@ def main():
             return None
 
     re_traces = re.compile(r' Severity="(.*?)".*?<avrf:message>(.*?)</avrf:message>.*?<avrf:stackTrace>(.*?)</avrf:stackTrace>', re.MULTILINE | re.DOTALL)
-    def extract_traces(logfname):
+    def extract_traces(logfname, headsize=None):
         try:
             with open(logfname, 'rt') as f:
                 data = f.read()
@@ -189,6 +191,10 @@ def main():
             verbose(f"INFO: file {logfname} contains no stack traces")
             return None
         traces = list(map(lambda t: "Application Verifier " + t[0] + ": " + t[1] + "\n" + t[2], traces))
+        
+        if headsize is not None:
+            traces = list(map(lambda t: "\n".join(t.split("\n")[0:headsize+1]), traces))
+		
         return traces
     
     trace2log = dict()
@@ -199,14 +205,15 @@ def main():
             if log2casename(logfname, casefnames) is None:
                 print(f"WARNING: case file for {logfname} is missing because file with corresponding id wasn't found in {args.cases_in}", file=sys.stderr)
         
-        traces = extract_traces(logfname)
-        for trace in traces:
-            if trace in trace2log:
-                trace2log[trace].append(logfname)
-            else:
-                trace2log[trace] = [logfname]
-            
-        log2trace[logfname] = traces
+        traces = extract_traces(logfname, args.trace_head)
+        if traces is not None:
+			for trace in traces:
+				if trace in trace2log:
+					trace2log[trace].append(logfname)
+				else:
+					trace2log[trace] = [logfname]
+				
+			log2trace[logfname] = traces
         
         
     if len(trace2log) < 1:
@@ -214,7 +221,7 @@ def main():
         return 0
     
     def format_trace(trace):
-        trace = saxutils.unescape(trace)
+        trace = sax_unescape(trace)
         trace = trace.replace('<avrf:trace>','')
         trace = trace.replace('</avrf:trace>','')
         trace = trace.split("\n")
