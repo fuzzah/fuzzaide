@@ -3,7 +3,7 @@
 Most of these tools were born due to extraordinary laziness of their author. Tools are 'probably' not production ready yet.
 ### appverif_export_all.au3
 This AutoIt script can be used with Application Verifier to export ALL available execution logs to some directory (**this was only tested on appverif version 10.0 x64 running on Windows 10 x64**).<br>
-Application Verifier (appverif) is a Windows-specific program from Microsoft used to sanitize programs on the fly with different checks to detect misuse of memory handling functions and whole bunch of other things. Its indended use is to launch tested application under WinDBG and manually inspect the issues, but Application Verifier also saves some run information as ".dat" binary files. User can then extract stack traces from crashing runs recorded in ".dat" files (export to XML files) manually one by one.<br>
+Application Verifier (appverif) is a Windows-specific program from Microsoft used to sanitize programs on the fly with different checks to detect misuse of memory handling functions and whole bunch of other things. Its intended use is to launch tested application under WinDBG and manually inspect the issues, but Application Verifier also saves some run information as ".dat" binary files. User can then extract stack traces from crashing runs recorded in ".dat" files (export to XML files) manually one by one.<br>
 Unfortunately Application Verifier does not provide a way to export all the logs at once. This script automates appverif UI to enumerate all the log entries and export each one of them as XML file.<br>
 How to use this script:
 1. Add your tested program to Application Verifier.
