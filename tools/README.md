@@ -50,6 +50,29 @@ How to use this script:
 4. If you need C-string representation: `./argv-fuzz-cook.py -c ./myapp --check-all`
 ### dupmanage.py
 This Python script is in half-abandoned half-unfinished state. Its final purpose is to manage groups of duplicate files, for example extract only files with unique contents from some wildcarded path. As of now it only forms and shows groups of files with duplicate contents.
+### fuzzman.py
+This Python script automates running multiple instances of AFL-like fuzzers and has ability to stop them in case of not discovering new paths for certain amount of time. <br>
+Invocation examples: <br>
+Fuzz ./myapp using all CPU cores until stopped by Ctrl+C: <br>
+	`fuzzman.py ./myapp` <br>
+If input directory doesn't exist, it will be created with simple initial corpus. <br>
+Run 4 instances and specify in/out directories: <br>
+	`fuzzman.py -n 4 -i ../inputs/for_myapp -o ../outputs/myapp ./myapp @@` <br>
+Set memory limit of 10 kilobytes, cleanup output directory before starting: <br>
+	`fuzzman.py -m 10K -C ./myapp` <br>
+Pass additional agruments to fuzzer: <br>
+	`fuzzman.py --more-args "-p fast" ./myapp @@` <br>
+Specify non-default fuzzer (it should follow same command syntax as AFL): <br>
+	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator ./myapp` <br>
+Specify non-default fuzzer in path: <br>
+	`fuzzman.py --fuzzer-binary obliterator ./myapp` <br>
+Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes: <br>
+	`fuzzman.py --no-paths-stop "1 hrs, 5 min" ./myapp` <br>
+Same as in previous example: <br>
+	`fuzzman.py --no-paths-stop "1 hrs, 5" ./myapp` <br>
+Same as in previous example, time measured in seconds: <br>
+	`fuzzman.py --no-paths-stop 3900 ./myapp` <br>
+<br>
 ### split-dir-contents.py
 This Python script may be used to "split" given directory into multiple directories by copying/moving files. For example, let's say some tool can only work with up to 100 files, otherwise it hangs.<br>
 In this case you can invoke split-dir-contents.py as follows:<br>
