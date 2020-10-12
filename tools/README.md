@@ -64,7 +64,7 @@ Pass additional agruments to fuzzer: <br>
 	`fuzzman.py --more-args "-p fast" ./myapp @@` <br>
 Specify non-default fuzzer (it should follow same command syntax as AFL): <br>
 	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator ./myapp` <br>
-Specify non-default fuzzer in path: <br>
+Specify non-default fuzzer in PATH: <br>
 	`fuzzman.py --fuzzer-binary obliterator ./myapp` <br>
 Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes: <br>
 	`fuzzman.py --no-paths-stop "1 hrs, 5 min" ./myapp` <br>
@@ -72,6 +72,7 @@ Same as in previous example: <br>
 	`fuzzman.py --no-paths-stop "1 hrs, 5" ./myapp` <br>
 Same as in previous example, time measured in seconds: <br>
 	`fuzzman.py --no-paths-stop 3900 ./myapp` <br>
+fuzzman.py was developed for use with (and tested on) AFL++.
 <br>
 ### split-dir-contents.py
 This Python script may be used to "split" given directory into multiple directories by copying/moving files. For example, let's say some tool can only work with up to 100 files, otherwise it hangs.<br>
