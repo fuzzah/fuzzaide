@@ -55,7 +55,7 @@ This Python script automates running multiple instances of AFL-like fuzzers and 
 Invocation examples: <br>
 Fuzz ./myapp using all CPU cores until stopped by Ctrl+C: <br>
 	`fuzzman.py ./myapp` <br>
-If input directory doesn't exist, it will be created with simple initial corpus. <br>
+This uses ./in and ./out as input/output directories. If input directory doesn't exist, it will be created with simple initial corpus. <br>
 Run 4 instances and specify in/out directories: <br>
 	`fuzzman.py -n 4 -i ../inputs/for_myapp -o ../outputs/myapp ./myapp @@` <br>
 Set memory limit of 10 kilobytes, cleanup output directory before starting: <br>
