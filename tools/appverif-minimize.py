@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-# check repository for LICENSE information
+# file    :  appverif-minimize.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
 
 import os
 import re
@@ -138,21 +140,22 @@ def main():
         if len(casefnames) < 1:
             sys.exit(f"No files in given directory {args.cases_in}!")
         
-        def case2logname(casename, lognames):
-            caseid = get_case_id(casename)
+        ## unused (yet?) code
+        # def case2logname(casename, lognames):
+        #     caseid = get_case_id(casename)
             
-            if caseid is None:
-                return None
+        #     if caseid is None:
+        #         return None
             
-            for logname in lognames:
-                logid = get_log_id(logname)
-                if logid is None:
-                    continue
+        #     for logname in lognames:
+        #         logid = get_log_id(logname)
+        #         if logid is None:
+        #             continue
                 
-                if logid == caseid:
-                    return logname
+        #         if logid == caseid:
+        #             return logname
             
-            return None
+        #     return None
         
         def log2casename(logname, casenames):
             logid = get_log_id(logname)
@@ -170,9 +173,11 @@ def main():
             
             return None
     else:
-        
-        def case2logname(_casename,_lognames):
-            return None
+        casefnames = []
+
+        # unused (yet?) code
+        # def case2logname(_casename,_lognames):
+        #     return None
     
         def log2casename(_logname,_casenames):
             return None
@@ -292,45 +297,44 @@ def main():
         verbose(f"\nStack trace of group {i+1} (files are listed above):")
         verbose(format_trace(trace))
         
-        if args.cases_in:
-            if args.cases_out: # need to save one case file
-                copied_case_name = None
-                casefile_renamed_to = None
-                if copied_log_name is None: # no log file was copied, just copy ANY case file
+        if args.cases_out: # need to save one case file
+            copied_case_name = None
+            casefile_renamed_to = None
+            if copied_log_name is None: # no log file was copied, just copy ANY case file
+                copied_case_name = copy_any_casefile(lognames)
+            else:
+                # find and copy MATCHING case file for copied log file
+                casename = log2casename(copied_log_name, casefnames)
+                
+                if casename is not None: # corresponding file was found
+                    if check_and_copy(casename, args.cases_out):
+                        copied_case_name = casename
+                    else:
+                        # we'll need to copy another case file from group and rename it
+                        print(f"WARNING: wasn't able to copy {casename} to {args.cases_out}", file=sys.stderr)
+                
+                if copied_case_name is None: # corresponding file wasn't found or couldn't be copied
                     copied_case_name = copy_any_casefile(lognames)
-                else:
-                    # find and copy MATCHING case file for copied log file
-                    casename = log2casename(copied_log_name, casefnames)
                     
-                    if casename is not None: # corresponding file was found
-                        if check_and_copy(casename, args.cases_out):
-                            copied_case_name = casename
+                    if copied_case_name is not None:
+                        # we just copied some other file from the same group, try renaming it
+                        srcfpath = os.path.join(args.cases_out, os.path.basename(copied_case_name))
+                        casefile_renamed_to = srcfpath + "___FOR_LOG_" + str(get_log_id(copied_log_name))
+                        renamed = False
+                        if not os.path.exists(casefile_renamed_to):
+                            try:
+                                shutil.move(srcfpath, casefile_renamed_to)
+                                renamed = True
+                            except:
+                                pass
+                                
+                        if renamed:
+                            print(f"INFO: renamed file {srcfpath} to {casefile_renamed_to} to match log file")
                         else:
-                            # we'll need to copy another case file from group and rename it
-                            print(f"WARNING: wasn't able to copy {casename} to {args.cases_out}", file=sys.stderr)
+                            print(f"WARNING: case file {srcfpath} is for {copied_log_name} log file", file=sys.stderr)
                     
-                    if copied_case_name is None: # corresponding file wasn't found or couldn't be copied
-                        copied_case_name = copy_any_casefile(lognames)
-                        
-                        if copied_case_name is not None:
-                            # we just copied some other file from the same group, try renaming it
-                            srcfpath = os.path.join(args.cases_out, os.path.basename(copied_case_name))
-                            casefile_renamed_to = srcfpath + "___FOR_LOG_" + str(get_log_id(copied_log_name))
-                            renamed = False
-                            if not os.path.exists(casefile_renamed_to):
-                                try:
-                                    shutil.move(srcfpath, casefile_renamed_to)
-                                    renamed = True
-                                except:
-                                    pass
-                                    
-                            if renamed:
-                                print(f"INFO: renamed file {srcfpath} to {casefile_renamed_to} to match log file")
-                            else:
-                                print(f"WARNING: case file {srcfpath} is for {copied_log_name} log file", file=sys.stderr)
-                        
-                if copied_case_name is None:
-                    print(f"WARNING: giving up on trying to find and copy test case for group {i+1}. You can review -v output and manually copy required file", file=sys.stderr)
+            if copied_case_name is None:
+                print(f"WARNING: giving up on trying to find and copy test case for group {i+1}. You can review -v output and manually copy required file", file=sys.stderr)
         
         
     

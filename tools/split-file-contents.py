@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-# check repository for LICENSE information
+# file    :  split-file-contents.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
 
 import os
 import sys
@@ -48,7 +50,7 @@ def main():
         sys.exit("-s and -N are mutually exclusive!")
 
     verbose = print if args.verbose > 0 else lambda *a, **k: None
-    verbose2 = print if args.verbose > 1 else lambda *a, **k: None
+    #verbose2 = print if args.verbose > 1 else lambda *a, **k: None
 
     if args.equally:
         num_parts = args.equally

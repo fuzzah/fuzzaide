@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-# check repository for LICENSE information
+# file    :  argv-fuzz-cook.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
 
 import sys
 import argparse

@@ -1,6 +1,8 @@
-; check repository for LICENSE information
+; file    :  appverif_export_all.au3
 ; repo    :  https://github.com/fuzzah/fuzzaide
 ; author  :  https://github.com/fuzzah
+; license :  MIT
+; check repository for more information
 
 #pragma compile(Console, true)
 

@@ -11,7 +11,7 @@ How to use this script:
 3. Application Verifier logs should now contain some entries (crashing ones will probably be marked with numbers in "Error" column).
 4. Run this AutoIt script from **elevated** command prompt: `AutoIt3_x64.exe .\appverif_export_all.au3 C:\appverif_logs_xml`
 5. You should see blinking "Export Log" dialog window. By the end of script run, your directory should contain ".dat.xml" files.
-### appverif_minimize.py
+### appverif-minimize.py
 This Python script minimizes WinAFL crashes with help of Application Verifier XML log files containing stack traces. (**this was only tested on appverif version 10.0 x64 running on Windows 10 x64**)<br>
 It can also minimize Application Verifier XML log files if you don't have/need case files.<br>
 IDs of log files and crashing test cases should correspond because **this script relies on ID numbers used in names**.<br>
@@ -21,23 +21,23 @@ How to use this script:
 `PS > Get-ChildItem -File -Path '.\out\crashes\*' -Include 'id*' | ForEach { Write-Output $_.fullname ; .\myapp.exe /file $_.fullname }` <br>
 Ensure that test cases are executed in correct (ascending) order: id 0, then id 1, etc.
 3. Export XML logs from Application Verifier (if you have 50+ files consider using tools like appverif_export_all.au3, see above).
-4. Run appverif_minimize.py:
+4. Run appverif-minimize.py:
 ```
-.\appverif_minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes --logs-out .\avmin\logs --cases-out .\avmin\cases
+.\appverif-minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes --logs-out .\avmin\logs --cases-out .\avmin\cases
 ```
 You can also see which of your cases produce same stack traces (add `-v` or omit `--logs-out` and `--cases-out`):
 ```
-.\appverif_minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes # only printed
-.\appverif_minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes -v --logs-out .\avmin\logs --cases-out .\avmin\crashes # printed and saved
+.\appverif-minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes # only printed
+.\appverif-minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes -v --logs-out .\avmin\logs --cases-out .\avmin\crashes # printed and saved
 ```
 If you don't need logs or crashes saved, just don't specify respective arguments:
 ```
-.\appverif_minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes --cases-out .\avmin # save minimized cases, don't save logs
+.\appverif-minimize.py --logs-in .\appverif_xml_logs --cases-in .\out\crashes --cases-out .\avmin # save minimized cases, don't save logs
 ```
 BTW `--cases-out` and `--logs-out` can point to the same directory if you like it.<br>
 You can also minimize AppVerifier XML log files without having case files:
 ```
-.\appverif_minimize.py --logs-in .\appverif_xml_logs --logs-out .\avmin
+.\appverif-minimize.py --logs-in .\appverif_xml_logs --logs-out .\avmin
 ```
 How it works: stack traces are extracted from XML logs; files sharing same stack traces are grouped together; case files are matched to XML files by ID numbers in their names. The script will surely mess up if you don't clean AppVerifier logs before running your test cases or if case / log file names were changed from original names given by WinAFL / Application Verifier.<br><br>
 **TODO:** add severity filter (Error, Warning).

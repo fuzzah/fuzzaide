@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
-# this script is WIP, it may be not production ready AT ALL # TODO: remove this line once script has become useful
-# check LICENSE file in repository
-# author: https://github.com/fuzzah
+# file    :  dupmanage.py
+# repo    :  https://github.com/fuzzah/fuzzaide
+# author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
 
 import os
 import sys
@@ -12,7 +14,6 @@ import argparse
 
 
 def main():
-    # TODO: remove WIP tag
     parser = argparse.ArgumentParser(description='[WIP] %(prog)s - search and manage files with duplicate contents',
                                      epilog="Note: to use wildcards on huge amount of files you can quote your pattern\
                                      and btw ALWAYS BE CAREFUL WITH WHAT YOU TYPE. NO WARRANTY. NO REFUNDS")
@@ -36,11 +37,6 @@ def main():
 
     verbose = print if args.verbose else lambda *a, **k: None
 
-    verbose("\n-------Parameters--------")
-    for key, value in vars(args).items():
-        verbose('args.' + key, value, sep=': ')
-    verbose("----End of parameters----\n")
-
     if args.list_hashes:
         print('Sorted list of available file hashing algorithms:')
         print(', '.join(sorted(hashlib.algorithms_available)))
@@ -48,7 +44,7 @@ def main():
 
     try:
         hashlib.new(args.hash)
-    except Exception as e:
+    except ValueError:
         sys.exit("Can't use hash function '%s'" % args.hash)
 
     def hashfile(filepath, blocksize=2**23): # read by 8 megabytes
@@ -100,7 +96,7 @@ def main():
         traverse(path)
 
     duplicate_groups = list()
-    for h, fnames in hash2file.items():
+    for _h, fnames in hash2file.items():
         if len(fnames) > 1:
             duplicate_groups.append(fnames)
 
