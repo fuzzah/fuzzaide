@@ -2,7 +2,7 @@
 collection of helper tools for fuzzing
 
 ## libpatchfuzz
-EXAMPLE / TEMPLATE library for fuzzing closed-source binaries.<br>
+EXAMPLE / TEMPLATE library for fuzzing closed-source binaries with use of hooking and patching techniques.<br>
 Idea: LD_PRELOAD to your tested app, hook code that acquires input buffer data, replace data in buffer with data from stdin.<br>
 Optionally: install patches to allow better fuzzing (remove CRC checks), add call to exit after buffer parsing, nop something, etc.<br>
 It's not very easy to implement correct hooking code, but will allow to replace arbitrary data in arbitrary chosen place when you don't have access to source code of tested app.<br>
