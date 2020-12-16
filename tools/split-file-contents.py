@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description='tool to split file equally or into blocks of size specified',
                                      epilog='this script was born thanks to extraordinary laziness of its author')
 
-    parser.add_argument('-f', '--file', help='file to split', required=True)
+    parser.add_argument('-i', '--file', help='file to split', required=True)
     parser.add_argument('-o', '--output-prefix', help='prefix for names of output files, may start with path for -s, '
                                                       'should be output directory path for -e', default=None)
 
