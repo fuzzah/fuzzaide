@@ -21,5 +21,5 @@ Some tips:<br>
 1. Use IDA/Ghidra/Cutter/etc to find better place to hook code.<br>
 2. Better place usually comes AFTER input decryption, CRC checking etc.<br>
 3. Use debugger if something fails to work.<br>
-4. If you're fuzzing some endlessly running server, don't forget to inject call to exit() after input procecssing.<br>
+4. If you're fuzzing some endlessly running server, don't forget to inject call to exit() after input processing.<br>
 
