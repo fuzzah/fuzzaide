@@ -9,12 +9,14 @@
 import os
 import sys
 import glob
+import shutil
 import hashlib
 import argparse
+import itertools
 
 
 def main():
-    parser = argparse.ArgumentParser(description='[WIP] %(prog)s - search and manage files with duplicate contents',
+    parser = argparse.ArgumentParser(description='%(prog)s - search and manage files with duplicate contents',
                                      epilog="Note: to use wildcards on huge amount of files you can quote your pattern\
                                      and btw ALWAYS BE CAREFUL WITH WHAT YOU TYPE. NO WARRANTY. NO REFUNDS")
     parser.add_argument('-v', '--verbose', help='print more messages', action='store_true')
@@ -23,6 +25,7 @@ def main():
 
     parser.add_argument('-r', '-R', '--recursive', help='also check files in subdirectories',
                         action='store_true')
+    parser.add_argument('-s', '--display-hashes', help='also display hashes', action='store_true')
 
     parser.add_argument('-H', '--hash', metavar='name', help='hash function to use, default is sha1', type=str,
                         default='sha1')
@@ -32,7 +35,7 @@ def main():
 
     parser.add_argument('action', help='desired action', choices=['list', 'ls', 'copy', 'cp', 'move', 'mv', 'delete', 'rm'])
 
-    parser.add_argument('type', help='type of files to perform action on', choices=['unique', 'u', 'uniq', 'duplicates', 'd', 'dup'])
+    parser.add_argument('type', help='type of files to perform action on', choices=['unique', 'u', 'uniq', 'duplicates', 'd', 'dup', 'mixed', 'mix', 'm'])
 
     parser.add_argument('paths', metavar='<dir/file pattern>', help='files and directories to check', nargs='*',
                         default=[os.path.join('.', '*')])
@@ -40,15 +43,15 @@ def main():
     if len(sys.argv) < 2:
         parser.print_help()
         return 0
+    
+    if '-L' in sys.argv:
+        print('Sorted list of available file hashing algorithms:', file=sys.stderr)
+        print(', '.join(sorted(hashlib.algorithms_available)), file=sys.stderr)
+        return 0
 
     args = parser.parse_args()
 
     verbose = print if args.verbose else lambda *a, **k: None
-
-    if args.list_hashes:
-        print('Sorted list of available file hashing algorithms:')
-        print(', '.join(sorted(hashlib.algorithms_available)))
-        return 0
     
     action_map = {
         'ls' : 'list',
@@ -66,7 +69,7 @@ def main():
             if not os.path.isdir(args.output_dir):
                 sys.exit("Path '%s' exists, but cannot be used as output directory" % (args.output_dir,))
         else:
-            verbose("Trying to create directory '%s'" % (args.output_dir,))
+            verbose("Trying to create directory '%s'" % (args.output_dir,), file=sys.stderr)
             if not args.dry_run:
                 try:
                     os.makedirs(args.output_dir)
@@ -77,7 +80,9 @@ def main():
         'u' : 'unique',
         'uniq' : 'unique',
         'd' : 'duplicates',
-        'dup' : 'duplicates'
+        'dup' : 'duplicates',
+        'm' : 'mixed',
+        'mix' : 'mixed'
     }
     args.type = type_map.get(args.type, args.type)
 
@@ -116,12 +121,12 @@ def main():
     def traverse(filepath, level=0):
         if os.path.isfile(filepath):
             if filepath not in file2hash:
-                verbose("hashing '%s' .. " % filepath, end='')
+                verbose("hashing '%s' .. " % filepath, end='', file=sys.stderr)
                 h = hashfile(filepath)
-                verbose(h)
+                verbose(h, file=sys.stderr)
                 if h is not None:
                     if h in hash2file:
-                        print("duplicate: '%s' is same as '%s'" % (filepath, hash2file[h][0]))
+                        verbose("duplicate: '%s' is same as '%s'" % (filepath, hash2file[h][0]), file=sys.stderr)
                         hash2file[h].append(filepath)
                     else:
                         hash2file[h] = [filepath]
@@ -132,22 +137,69 @@ def main():
                     traverse(inner_path, level+1)
 
     for path in all_paths:
-        verbose('CHECKING:', path)
+        verbose('CHECKING:', path, file=sys.stderr)
         traverse(path)
+    
+    if args.action == 'list':
+        if args.display_hashes:
+            def action(fname):
+                print(file2hash[fname] + ';' + fname)
+        else:
+            def action(fname):
+                print(fname)
+    
+    elif args.action == 'delete':
+        if args.dry_run:
+            def action(fname):
+                verbose("delete '%s'" % (fname,))
+        else:
+            def action(fname):
+                verbose("delete '%s'" % (fname,))
+                try:
+                    shutil.rmtree(fname)
+                except Exception as e:
+                    print("WARNING: Wasn't able to delete file '%s' : %s" % (fname,str(e)), file=sys.stderr)
+    
+    else: # action = copy | move
+        if args.dry_run:
+            def action(fname):
+                newpath = os.path.join(args.output_dir, os.path.basename(fname))
+                print("%s '%s' to '%s'" % (args.action,fname,newpath), file=sys.stderr)
+        else:    
+            if args.action == 'copy':
+                operation = shutil.copy
+            else:
+                operation = shutil.move
+            
+            def action(fname):
+                newpath = os.path.join(args.output_dir, os.path.basename(fname))
+                print("%s '%s' to '%s'" % (args.action, fname, newpath))
+                try:
+                    operation(fname, newpath)
+                except Exception as e:
+                    print("WARNING: Wasn't able to %s file '%s' : %s" % (args.action, fname, str(e)), file=sys.stderr)
+    
+    files = hash2file.values()
 
-    duplicate_groups = list()
-    for _h, fnames in hash2file.items():
-        if len(fnames) > 1:
-            duplicate_groups.append(fnames)
-
-    if len(duplicate_groups) > 0:
-        print('Found %d duplicate groups:' % len(duplicate_groups))
-        for i, group in enumerate(sorted(duplicate_groups, key=len, reverse=True)):
-            print('group #%d of size %d:' % (i+1, len(group)))
-            print('\n'.join(group))
-            print()
+    if args.type == 'unique':
+        files = filter(lambda a: len(a) == 1, files)
+    elif args.type == 'duplicates':
+        files = filter(lambda a: len(a) > 1, files)
     else:
-        print('No duplicates found')
+        files = map(lambda a: [a[0]], files)
+    
+    files = itertools.chain.from_iterable(files)
+    if args.type == 'duplicates':
+        files = sorted(files, key=lambda name: (file2hash.get(name,'UNKNOWN'), name))
+    else:
+        files = sorted(files)
+    
+    if len(files) > 0:
+        for fname in files:
+            action(fname)
+        print('Matching files: %d' % (len(files),), file=sys.stderr)
+    else:
+        print('No files to %s' % (args.action,), file=sys.stderr)
     return 0
 
 
