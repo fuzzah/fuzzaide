@@ -61,7 +61,7 @@ Copy all test cases without making redundant duplicates (e.g. for next fuzzing j
 	`dupmanage.py copy mixed "out/*/queue/id*" -o testcases` <br>
 Hash all files with contents appearing ONLY ONCE in ./input_dir without checking inner directories: <br>
 	`dupmanage.py list unique ./input_dir -s` <br>
-Default hash function is sha1. Use `-L` to see available hash functions. <br>
+Default hash function is sha1. Use `-L` to see available hash functions and `-H` to specify hash function. <br>
 List duplicates in multiple directories (recursively): <br>
 	`dupmanage.py -R list duplicates in1 in2 in3` <br>
 Dry-run option supported (`-D`) to emulate write operations and see what would happen during normal run.<br>
