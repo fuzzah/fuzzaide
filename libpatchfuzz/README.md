@@ -5,13 +5,13 @@ collection of helper tools for fuzzing
 EXAMPLE / TEMPLATE library for fuzzing closed-source binaries with use of hooking and patching techniques.<br>
 Idea: LD_PRELOAD to your tested app, hook code that acquires input buffer data, replace data in buffer with data from stdin.<br>
 Optionally: install patches to allow better fuzzing (remove CRC checks), add call to exit after buffer parsing, nop something, etc.<br>
-It's not very easy to implement correct hooking code, but will allow to replace arbitrary data in arbitrary chosen place when you don't have access to source code of tested app.<br>
+It's not very easy to correctly implement hooking code, but it allows you to replace arbitrary data in arbitrary chosen place when you don't have access to source code of tested app.<br>
 
 Example use (e.g. to test if your hook works):<br>
  ```
  $ env LD_PRELOAD=./libpatchfuzz32.so ./myapp
  ```
-This will make application to perform additional actions as you implemented in libpatchfuzz.c (probably read data from stdin and replace original input buffer)<br>
+This will make application perform additional actions as you implemented in libpatchfuzz.c (probably read data from stdin and replace original input buffer)<br>
 Using with AFL:<br>
  ```
  $ env AFL_PRELOAD=./libpatchfuzz32.so afl-fuzz -Q -m none -i in -o out -- ./some_udp_server

@@ -65,7 +65,7 @@ Pass additional agruments to fuzzer: <br>
 Specify non-default fuzzer (it should follow same command syntax as AFL): <br>
 	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator ./myapp` <br>
 Specify non-default fuzzer in PATH: <br>
-	`fuzzman.py --fuzzer-binary obliterator ./myapp` <br>
+	`fuzzman.py --fuzzer-binary py-afl-fuzz ./myapp` <br>
 Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes: <br>
 	`fuzzman.py --no-paths-stop "1 hrs, 5 min" ./myapp` <br>
 Same as in previous example: <br>

@@ -1,3 +1,12 @@
+/*
+file    :  libpatchfuzz/libpatchfuzz.c
+repo    :  https://github.com/fuzzah/fuzzaide
+author  :  https://github.com/fuzzah
+license :  MIT
+check repository for more information
+*/
+
+
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,23 +20,16 @@ int32_t ulPacketSize;
 char szDbgStr[0x1000];
 
 void data_replacer(void) {
-  // pushad && new code && popad
-  // repeat overwritten code
-  // push return address && ret
+  /*
+    algorithm of this function:
+      pushad && execute your added code && popad
+      repeat overwritten code
+      push return address && ret
+  */
 
   asm volatile("pusha\n\t"
                "movl %eax, ulPacketSize\n\t" // store to global variables
                "movl %edi, pPacketStr\n\t");
-
-  /*
-      if (pPacketStr && ulPacketSize > -1) {
-      sprintf(szDbgStr,"[!pck] ");
-      for(int32_t i=0; i<ulPacketSize; i++)	{
-        sprintf(szDbgStr + 7 + i*3, "%02X ", pPacketStr[i]);
-      }
-      puts(szDbgStr);
-          }
-  */
 
   memset(pPacketStr, 0, 576);              // 576 - buffer size in application
   ulPacketSize = read(0, pPacketStr, 576); // read from stdin
@@ -39,8 +41,8 @@ void data_replacer(void) {
 
   asm volatile(
       "popa\n\t"
-      "pop %ebx\n\t"                    // repeat this function epilog
-      "mov -0x4(%ebp),%ebx\n\t"
+      "pop %ebx\n\t"                    // repeat this function epilogue as compiled by gcc
+      "mov -0x4(%ebp),%ebx\n\t"         //   ..because compiled epilogue won't be executed
       "leave\n\t"
       "movl ulPacketSize, %eax\n\t"     // store new buffer size
       "movl %eax, 0xfffffd80(%ebp)\n\t" // repeat overwritten instruction
@@ -48,7 +50,8 @@ void data_replacer(void) {
       "ret\n\t");
 }
 
-int rand() // remove random in binary
+// optional: remove random in binary
+int rand()
 {
   return 0x1337;
 }

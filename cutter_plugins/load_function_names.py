@@ -1,3 +1,8 @@
+# file    :  load_function_names.py
+# repo    :  https://github.com/fuzzah/fuzzaide
+# author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
 
 r"""
 LoadFNames - Cutter plugin to load function names from file.

@@ -1,3 +1,11 @@
+/*
+file    :  libexit/libexit.c
+repo    :  https://github.com/fuzzah/fuzzaide
+author  :  https://github.com/fuzzah
+license :  MIT
+check repository for more information
+*/
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
