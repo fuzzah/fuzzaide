@@ -19,12 +19,20 @@ def main():
                                      and btw ALWAYS BE CAREFUL WITH WHAT YOU TYPE. NO WARRANTY. NO REFUNDS")
     parser.add_argument('-v', '--verbose', help='print more messages', action='store_true')
 
+    parser.add_argument('-D', '--dry-run', help='don\'t perform any disk writes', action='store_true')
+
     parser.add_argument('-r', '-R', '--recursive', help='also check files in subdirectories',
                         action='store_true')
 
     parser.add_argument('-H', '--hash', metavar='name', help='hash function to use, default is sha1', type=str,
                         default='sha1')
     parser.add_argument('-L', '--list-hashes', help='list supported hash algorithms', action='store_true')
+
+    parser.add_argument('-o', '--output-dir', help='output directory for actions MOVE and COPY')
+
+    parser.add_argument('action', help='desired action', choices=['list', 'ls', 'copy', 'cp', 'move', 'mv', 'delete', 'rm'])
+
+    parser.add_argument('type', help='type of files to perform action on', choices=['unique', 'u', 'uniq', 'duplicates', 'd', 'dup'])
 
     parser.add_argument('paths', metavar='<dir/file pattern>', help='files and directories to check', nargs='*',
                         default=[os.path.join('.', '*')])
@@ -41,6 +49,37 @@ def main():
         print('Sorted list of available file hashing algorithms:')
         print(', '.join(sorted(hashlib.algorithms_available)))
         return 0
+    
+    action_map = {
+        'ls' : 'list',
+        'cp' : 'copy',
+        'mv' : 'move',
+        'rm' : 'delete'
+    }
+    args.action = action_map.get(args.action, args.action)
+
+    if args.action in ('move', 'copy'): # need output directory
+        if args.output_dir is None:
+            sys.exit("Please specify output directory (-o) for use with MOVE or COPY action")
+        
+        if os.path.exists(args.output_dir):
+            if not os.path.isdir(args.output_dir):
+                sys.exit("Path '%s' exists, but cannot be used as output directory" % (args.output_dir,))
+        else:
+            verbose("Trying to create directory '%s'" % (args.output_dir,))
+            if not args.dry_run:
+                try:
+                    os.makedirs(args.output_dir)
+                except Exception as e:
+                    sys.exit("Wasn't able to create output directory '%s' : %s" % (args.output_dir, str(e)))
+
+    type_map = {
+        'u' : 'unique',
+        'uniq' : 'unique',
+        'd' : 'duplicates',
+        'dup' : 'duplicates'
+    }
+    args.type = type_map.get(args.type, args.type)
 
     try:
         hashlib.new(args.hash)
@@ -80,12 +119,13 @@ def main():
                 verbose("hashing '%s' .. " % filepath, end='')
                 h = hashfile(filepath)
                 verbose(h)
-                if h in hash2file:
-                    print("duplicate: '%s' same as '%s'" % (filepath, hash2file[h][0]))
-                    hash2file[h].append(filepath)
-                else:
-                    hash2file[h] = [filepath]
-                file2hash[filepath] = h
+                if h is not None:
+                    if h in hash2file:
+                        print("duplicate: '%s' is same as '%s'" % (filepath, hash2file[h][0]))
+                        hash2file[h].append(filepath)
+                    else:
+                        hash2file[h] = [filepath]
+                    file2hash[filepath] = h
         else:
             if level == 0 or args.recursive:
                 for inner_path in glob.glob(os.path.join(filepath, '*')):
