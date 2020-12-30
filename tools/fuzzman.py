@@ -171,13 +171,13 @@ class FuzzManager:
             try:
                 os.makedirs(args.input_dir, exist_ok=True)
             except OSError:
-                sys.exit(f"Can't create input directory {args.input_dir}")
+                sys.exit("Can't create input directory %s" % args.input_dir)
         elif not os.path.isdir(args.input_dir):
-            sys.exit(f"Can't use {args.input_dir} as input directory")
+            sys.exit("Can't use %s as input directory" % args.input_dir)
         
         if len(glob.glob(os.path.join(args.input_dir,'*'))) < 1:
             path = os.path.join(args.input_dir,'1')
-            print(f"Creating simple input corpus: {path}")
+            print("Creating simple input corpus: %s" % path)
             try:
                 with open(path, 'w') as f:
                     f.write('12345')
@@ -203,7 +203,7 @@ class FuzzManager:
                 worker_name = "m"
                 power_schedule = " -p exploit"
                 if args.dict:
-                    dictionary = f" -x {args.dict}"
+                    dictionary = " -x " + args.dict
             
             else:
                 role = "-S"
@@ -215,9 +215,9 @@ class FuzzManager:
             if args.no_power_schedules:
                 power_schedule = ""
 
-            cmd = f"{args.fuzzer_binary} -i {args.input_dir} -o {args.output_dir} " \
-                  f"-m {args.memory_limit}{dictionary} {role} {worker_name}{power_schedule}"
-
+            cmd = args.fuzzer_binary + " -i " + args.input_dir + " -o " + args.output_dir + " " + \
+                  "-m " + args.memory_limit + dictionary + " " + role + " " + worker_name + power_schedule
+            
             if args.more_args:
                 cmd += " " + args.more_args
             cmd += " -- " + " ".join(args.program)
@@ -356,8 +356,13 @@ class FuzzManager:
 
             if stats is None:
                 continue
-
-            print(f"Worker {instance.name} is {'NOT ' if instance.proc.poll() else ''}running")
+            
+            if instance.proc.poll():
+                status = 'NOT '
+            else:
+                status = ''
+            
+            print("Worker " + instance.name + " is " + status + "running")
             crashes = int(stats.get("unique_crashes", 0))
             hangs = int(stats.get("unique_hangs", 0))
             paths_total = int(stats.get("paths_total", 0))
@@ -492,13 +497,13 @@ def main():
         args.no_paths_stop = args.no_paths_stop.strip()
         if 'se' in args.no_paths_stop or ' s' in args.no_paths_stop:
             # TODO: rewrite it to be SHORT and INFORMATIVE
-            msg = f"Error: don't specify exact number of seconds in --no-paths-stop, {parser.prog} is not that precise."
-            msg += f"\n  You probably want to check if time without new paths is LONGER than '{args.no_paths_stop}', " \
-                   f"but {parser.prog} will search it as a substring in string like '2 days, 13 hrs, 9 min, 37 sec' "
+            msg = "Error: don't specify exact number of seconds in --no-paths-stop, " + parser.prog + " is not that precise."
+            msg += "\n  You probably want to check if time without new paths is LONGER than '" + args.no_paths_stop + "', " \
+                   "but " + parser.prog + " will search it as a substring in string like '2 days, 13 hrs, 9 min, 37 sec' "
             msg += "\n  You can specify exact number of seconds just as a number. This number will be compared to " \
                    "time without finds measured in seconds. "
             msg += "\n  For example, this command will stop fuzzing job AFTER one hour and one second: " \
-                   f"\n\t{sys.argv[0]} --no-paths-stop 3601 ./myapp"
+                   "\n\t" + sys.argv[0] + " --no-paths-stop 3601 ./myapp"
             msg += "\nSee -h/--help for more examples"
             print(msg, file=sys.stderr)
             return 3
