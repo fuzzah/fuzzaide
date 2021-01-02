@@ -440,7 +440,7 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 ["Run 4 instances and specify in/out directories",
                  "-n 4 -i ../inputs/for_myapp -o ../outputs/myapp ./myapp @@"],
                 ["Specify non-default fuzzer", "--fuzzer-binary ~/git/fuzzer/obliterator ./myapp"],
-                ["Specify non-default fuzzer in path", "--fuzzer-binary obliterator ./myapp"],
+                ["Specify non-default fuzzer in path", "--fuzzer-binary py-afl-fuzz ./myapp"],
                 ["Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes",
                  '--no-paths-stop "1 hrs, 5 min" ./myapp'],
                 ["Same as in previous example", '--no-paths-stop "1 hrs, 5" ./myapp'],
