@@ -29,29 +29,35 @@ cEOL = b"\x1b[0K"
 CURSOR_HIDE = b"\x1b[?25l"
 CURSOR_SHOW = b"\x1b[?25h"
 
-SET_G1 = b"\x1b)0"  # /* Set G1 for box drawing    */
-RESET_G1 = b"\x1b)B"  # /* Reset G1 to ASCII         */
-bSTART = b"\x0e"  # /* Enter G1 drawing mode     */
-bSTOP = b"\x0f"  # /* Leave G1 drawing mode     */
+SET_G1 = b"\x1b)0"   # /* Set G1 for box drawing    */
+RESET_G1 = b"\x1b)B" # /* Reset G1 to ASCII         */
+bSTART = b"\x0e"     # /* Enter G1 drawing mode     */
+bSTOP = b"\x0f"      # /* Leave G1 drawing mode     */
 
 bSTG = bSTART + cGRA
 
 
 class StreamingProcess:
 
-    def __init__(self, name='', cmd=None, env=None):
+    def __init__(self, name='', cmd=None, env=None, verbose=False):
         if cmd is None:
             raise SyntaxError("Can't create SteamingProcess without 'cmd' parameter")
 
         self.name = name
-        self.cmd = cmd
-        self.env = env
+        self.cmd  = cmd
+        self.env  = env
+        self.verbose = verbose
         self.proc = None
         self.comm_thread = None
+
         self.buffer = deque(maxlen=100)
-        self.lock = Lock()
-        self._stop = Event()
+        self.lock   = Lock()
+
+        self._stop  = Event()
         self.waited_for_child = False
+
+        self._restarts = 0
+        self.total_restarts = 0
 
         self.start()
 
@@ -68,11 +74,7 @@ class StreamingProcess:
             self.buffer.append(data)
             self.lock.release()
 
-    def start(self):
-        if self.comm_thread:
-            print("Communication thread is already running", file=sys.stderr)
-            return True
-
+    def start(self, resume=False, env={}):
         cmd = self.cmd
 
         if cmd is None:
@@ -81,18 +83,30 @@ class StreamingProcess:
         args = shlex.split(cmd)
         self.waited_for_child = False
 
-        try:
-            self.proc = Popen(args, shell=False, stdout=PIPE, env=self.env)
-        except SubprocessError:
-            print("Wasn't able to start process with command '%s'" % (cmd,), file=sys.stderr)
-            return False
+        if self.proc is None or self.proc.poll() is not None:
+            self.env.update(env)
 
-        self.comm_thread = Thread(target=self.__communicate_thread)
-        self.comm_thread.start()
-        if not self.comm_thread.is_alive():
-            print("Wasn't able to start communication thread. Stopping process", file=sys.stderr)
-            self.stop()
-            return False
+            if resume:
+                self.env.update({"AFL_AUTORESUME": "1"})
+                try:
+                    path_idx = args.index("-i") + 1
+                except ValueError:
+                    sys.exit("Failed to restart instance '%s': no '-i' option passed" % (cmd,))
+                args[path_idx] = "-"
+                
+            try:
+                self.proc = Popen(args, shell=False, stdout=PIPE, env=self.env)
+            except SubprocessError:
+                print("Wasn't able to start process with command '%s'" % (cmd,), file=sys.stderr)
+                return False
+        
+        if self.comm_thread is None:
+            self.comm_thread = Thread(target=self.__communicate_thread)
+            self.comm_thread.start()
+            if not self.comm_thread.is_alive():
+                print("Wasn't able to start communication thread. Stopping process", file=sys.stderr)
+                self.stop()
+                return False
         return True
 
     def get_output(self, num_lines=100):
@@ -133,23 +147,35 @@ class StreamingProcess:
         print("[i] Instance '%s' status:" % self.cmd)
         if self.proc and self.proc.poll() is None:
             print("\tRunning. Process Id: %d" % self.proc.pid)
+            self._restarts -= 5 # failed attempts to restart are cooling down over time
+            if self._restarts < 0:
+                self._restarts = 0
         else:
-            print("[!]\tNot running", file=sys.stderr)
-            quality = 0
-
+            self._restarts += 10
+            if self._restarts > 29: # three failed restarts in a row -> give up
+                print("[!]\tNot running, gave up on restarting", file=sys.stderr)
+                quality = 0
+            else:
+                print("[!]\tNot running, restarting.. ", file=sys.stderr)
+                self.total_restarts += 1
+                quality -= 1
+                self.start(resume=True)
+        
         if self.comm_thread and self.comm_thread.is_alive():
-            print("\tCommunication thread is running. Thread: ", self.comm_thread)
+            if self.verbose:
+                print("\tCommunication thread is running. Thread:", self.comm_thread)
         else:
             print("[!]\tCommunication thread is not running. Realtime output not available", file=sys.stderr)
             quality -= 1
 
-        if quality > 1:
-            print("\tInstance seems to be working normally")
-        elif quality == 1:
-            print("\tInstance working without realtime output report")
-        else:
+        if quality < 1:
             print("[!]\tInstance is not working", file=sys.stderr)
-
+        elif self.verbose:
+            if quality > 1:
+                print("\tInstance seems to be working normally")
+            elif quality == 1:
+                print("\tInstance working without realtime output report")
+        
         return quality > 0
 
 
@@ -161,12 +187,18 @@ class FuzzManager:
         self.args = args
         self.waited_for_child = False
 
-    def start(self):
+    def start(self, env={}):
         args = self.args
 
         if args.instances < 1:
             args.instances = 1
         
+        if shutil.which(args.fuzzer_binary) is None:
+            sys.exit("File %s is not found so it cannot be used as fuzzer" % args.fuzzer_binary)
+
+        if shutil.which(args.program[0]) is None:
+            sys.exit("File %s is not found so it cannot be tested" % args.program[0])
+
         if not os.path.exists(args.input_dir):
             try:
                 os.makedirs(args.input_dir, exist_ok=True)
@@ -187,13 +219,10 @@ class FuzzManager:
         if args.cleanup:
             if os.path.isdir(args.output_dir):
                 print("Removing directory '%s'" % args.output_dir)
-                shutil.rmtree(args.output_dir, ignore_errors=True)
-
-        if shutil.which(args.fuzzer_binary) is None:
-            sys.exit("File %s is not found so it cannot be used as fuzzer" % args.fuzzer_binary)
-
-        if shutil.which(args.program[0]) is None:
-            sys.exit("File %s is not found so it cannot be tested" % args.program[0])
+                try:
+                    shutil.rmtree(args.output_dir, ignore_errors=True)
+                except shutil.Error:
+                    sys.exit("Wasn't able to remove output directory '%s'" % args.output_dir)
 
         for i in range(args.instances):
             dictionary = ''
@@ -224,9 +253,10 @@ class FuzzManager:
 
             worker_env = os.environ.copy()
             worker_env["AFL_FORCE_UI"] = "1"
+            worker_env.update(env)
 
             print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
-            self.procs.append(StreamingProcess(name=worker_name, cmd=cmd, env=worker_env))
+            self.procs.append(StreamingProcess(name=worker_name, cmd=cmd, env=worker_env, verbose=args.verbose))
 
     def stop(self, grace_sig=signal.SIGINT):
         print("Stopping processes")
@@ -270,6 +300,7 @@ class FuzzManager:
 
         instance = self.procs[self.lastshown]
         if instance.proc.poll() is None:  # process is still running
+            sys.stdout.buffer.write(CURSOR_HIDE)
             for _ in range(100):
                 data = instance.get_output(24)
                 if not self.args.no_drawing_workaround and len(data) > 0:
@@ -282,6 +313,7 @@ class FuzzManager:
                     sys.stdout.buffer.write(SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1)
 
                 sleep(0.05)
+            sys.stdout.buffer.write(CURSOR_SHOW)
         else:  # process is not running
             if not self.waited_for_child:
                 try:
@@ -339,6 +371,43 @@ class FuzzManager:
         if len(stats) < 1:
             return None
         return stats
+    
+    @staticmethod
+    def update_stat_timestamp(stats_dict, stat_name, saved_newest_stamp):
+        """
+        Use this method to update last path (crash, hang, etc) timestamp.
+        Example: newest_path_stamp = update_stat_timestamp(stats, "last_path", newest_path_stamp)
+        """
+        stamp = stats_dict.get(stat_name)
+
+        if stamp is None:
+            return saved_newest_stamp
+        
+        try:
+            stamp = int(stamp)
+        except ValueError:
+            return saved_newest_stamp
+        
+        if stamp > saved_newest_stamp:
+            return stamp
+        
+        return saved_newest_stamp
+    
+    @staticmethod
+    def format_seconds(seconds):
+        s = seconds % 60
+        m = (seconds // 60) % 60
+        h = (seconds // 3600) % 24
+        d = seconds // 86400
+
+        if d > 0:
+            return "%d days, %d hrs, %d min, %d sec" % (d, h, m, s)
+        elif h > 0:
+            return "%d hrs, %d min, %d sec" % (h, m, s)
+        elif m > 0:
+            return "%d min, %d sec" % (m, s)
+
+        return "%d sec" % (s,)
 
     def job_status_check(self, no_paths_time_substr=None):
         """
@@ -348,8 +417,14 @@ class FuzzManager:
         output_dir = self.args.output_dir
         if output_dir is None or len(output_dir) < 1:
             return False
+        
+        newest_path_stamp  = 0
+        newest_hang_stamp  = 0
+        newest_crash_stamp = 0
 
-        newest_path_stamp = 0
+        sum_paths   = 0
+        sum_hangs   = 0
+        sum_crashes = 0
 
         for idx, instance in enumerate(self.procs, start=1):
             stats = self.get_fuzzer_stats(output_dir, idx, instance)
@@ -364,50 +439,45 @@ class FuzzManager:
             
             print("Worker " + instance.name + " is " + status + "running")
             crashes = int(stats.get("unique_crashes", 0))
-            hangs = int(stats.get("unique_hangs", 0))
+            hangs   = int(stats.get("unique_hangs", 0))
             paths_total = int(stats.get("paths_total", 0))
             paths_found = int(stats.get("paths_found", 0))
+
+            sum_crashes += crashes
+            sum_hangs   += hangs
+            sum_paths   += paths_total
 
             print("\tcrashes: %d, hangs: %d, paths total: %d" % (crashes, hangs, paths_total))
             print("\tpaths discovered: %d (%.2f%% of total paths)" % (paths_found, 100.0 * paths_found / paths_total))
 
-            path_stamp = stats.get("last_path")
-
-            if path_stamp is None:
-                continue
-
-            path_stamp = int(path_stamp)
-
-            if path_stamp > newest_path_stamp:
-                newest_path_stamp = path_stamp
-
-        # TODO: print some per-fuzzer stats with stats.get("last_path")
+            newest_path_stamp  = self.update_stat_timestamp(stats, "last_path", newest_path_stamp)
+            newest_hang_stamp  = self.update_stat_timestamp(stats, "last_hang", newest_hang_stamp)
+            newest_crash_stamp = self.update_stat_timestamp(stats, "last_crash", newest_crash_stamp)
 
         if newest_path_stamp == 0:
             return False
+        
+        print("\nStats of this fuzzing job:")
 
         now = int(datetime.now().timestamp())
-        newest_path_delta = now - newest_path_stamp  # delta is in seconds
 
-        def format_time(seconds):
-            s = seconds % 60
-            m = (seconds // 60) % 60
-            h = (seconds // 3600) % 24
-            d = seconds // 86400
+        newest_path_delta = now - newest_path_stamp
+        newest_path_fmt = self.format_seconds(newest_path_delta)
+        print("  Paths: %d. Last new path: %s ago" % (sum_paths, newest_path_fmt))
 
-            if d > 0:
-                return "%d days, %d hrs, %d min, %d sec" % (d, h, m, s)
-            elif h > 0:
-                return "%d hrs, %d min, %d sec" % (h, m, s)
-            elif m > 0:
-                return "%d min, %d sec" % (m, s)
-
-            return "%d sec" % (s,)
-
-        newest_path_fmt = format_time(newest_path_delta)
-        print("Last new path: " + newest_path_fmt + " ago")
-
-        # TODO: print some common stats of current fuzzing job
+        if sum_hangs > 0:
+            delta = now - newest_hang_stamp
+            seconds_fmt = self.format_seconds(delta)
+            print("  Hangs: %d. Last new hang: %s ago" % (sum_hangs, seconds_fmt))
+        else:
+            print("  Hangs: 0")
+        
+        if sum_crashes > 0:
+            delta = now - newest_crash_stamp
+            seconds_fmt = self.format_seconds(delta)
+            print("Crashes: %d. Last new crash: %s ago" % (sum_crashes, seconds_fmt))
+        else:
+            print("Crashes: 0")
 
         # now decide if we need to stop
         if no_paths_time_substr is not None:
@@ -478,6 +548,7 @@ def main():
                         help='stop when time without finds (TWF) contains TIME or if TWF becomes greater than or '
                              'equal to int(TIME) (default: don\'t stop)',
                         default=None)
+    parser.add_argument('-v', '--verbose', help='print more messages', action='store_true')
     # TODO:
     # -c cmplog binary
 
