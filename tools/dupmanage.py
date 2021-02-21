@@ -37,6 +37,8 @@ def main():
 
     parser.add_argument('-o', '--output-dir',
                         help='output directory for actions MOVE and COPY')
+    parser.add_argument('-a', '--append',
+                        help='hash files that already exist in output dir', action='store_true')
 
     parser.add_argument("-P", "--preserve-names",
                         help="don't rename files, just copy to output directory (false by default) (this will overwrite files on name collision)",
@@ -79,10 +81,10 @@ def main():
     }
     args.action = action_map.get(args.action, args.action)
 
-    if args.action in ('move', 'copy'):  # need output directory
+    if args.append or args.action in ('move', 'copy'):  # need output directory
         if args.output_dir is None:
             sys.exit(
-                "Please specify output directory (-o) for use with MOVE or COPY action")
+                "Please specify output directory (-o) for use with --append option or MOVE and COPY actions")
 
         if os.path.exists(args.output_dir):
             if not os.path.isdir(args.output_dir):
@@ -97,6 +99,9 @@ def main():
                 except Exception as e:
                     sys.exit("Wasn't able to create output directory '%s' : %s" % (
                         args.output_dir, str(e)))
+    
+    if args.append and args.action == 'delete':
+        sys.exit("Error: append option is incompatible with delete action")
 
     type_map = {
         'u': 'unique',
@@ -132,6 +137,9 @@ def main():
             return h.hexdigest()
 
     all_paths = []
+    if args.append:
+        all_paths.append(args.output_dir)
+    
     for path in args.paths:
         if '*' in path or '?' in path:
             all_paths.extend(glob.glob(path))
@@ -249,11 +257,24 @@ def main():
             file2hash.get(name, 'UNKNOWN'), name))
     else:
         files = sorted(files)
-
+    
+    matching_files = 0
     if len(files) > 0:
-        for fname in files:
-            action(fname)
-        print('Matching files: %d' % (len(files),), file=sys.stderr)
+        abs_out = os.path.abspath(args.output_dir)
+        if args.append:
+            for fname in files:
+                fpath = os.path.join(abs_out, os.path.basename(fname))
+                if os.path.exists(fpath) and os.path.samefile(fpath, os.path.abspath(fname)):
+                    continue  # don't process files that are already in output_dir
+                action(fname)
+                matching_files += 1
+        else:
+            for fname in files:
+                action(fname)
+            matching_files = len(files)
+        
+    if matching_files > 0:
+        print('Matching files: %d' % (matching_files,), file=sys.stderr)
     else:
         print('No files to %s' % (args.action,), file=sys.stderr)
     return 0

@@ -55,14 +55,14 @@ How to use this script:
 
 ### dupmanage.py
 This Python script is able manage groups of duplicate files, for example extract only files with unique contents from some wildcarded path(s). Supported actions: list, copy, move, delete. Supported filters: unique (ONLY work on files with unique contents), duplicates (ONLY work on files with non-unique contents), mixed (work on BOTH unique and duplicate files, but don't include more than one file with same contents). Mixed mode results in unique files in output directory. <br>
-TODO: handle name collision e.g. by renaming output files. <br>
 Invocation examples: <br>
-Copy all test cases without making redundant duplicates (e.g. for next fuzzing job or to check coverage): <br>
-	`dupmanage.py copy mixed "out/*/queue/id*" -o testcases` <br>
-Hash all files with contents appearing ONLY ONCE in ./input_dir without checking inner directories: <br>
+Copy all test cases without making redundant duplicates, appending (-a) testcases dir (e.g. for next fuzzing job or to check coverage): <br>
+	`dupmanage.py copy mixed "out/*/queue/id*" -a -o testcases` <br>
+Append option (-a/--append) makes sure to not make duplicates in output directory.<br>
+Hash all files with contents appearing EXACTLY ONCE in ./input_dir without checking inner directories: <br>
 	`dupmanage.py list unique ./input_dir -s` <br>
 Default hash function is sha1. Use `-L` to see available hash functions and `-H` to specify hash function. <br>
-List duplicates in multiple directories (recursively): <br>
+List duplicates in multiple directories (recursively traversing each one): <br>
 	`dupmanage.py -R list duplicates in1 in2 in3` <br>
 Dry-run option supported (`-D`) to emulate write operations and see what would happen during normal run.<br>
 Some shorthands for commands are supported: `duplicates` = `dup`, `list` = `ls`, etc.
