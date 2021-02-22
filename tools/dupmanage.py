@@ -260,8 +260,8 @@ def main():
     
     matching_files = 0
     if len(files) > 0:
-        abs_out = os.path.abspath(args.output_dir)
         if args.append:
+            abs_out = os.path.abspath(args.output_dir)
             for fname in files:
                 fpath = os.path.join(abs_out, os.path.basename(fname))
                 if os.path.exists(fpath) and os.path.samefile(fpath, os.path.abspath(fname)):
