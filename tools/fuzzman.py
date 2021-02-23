@@ -364,7 +364,7 @@ class FuzzManager:
         stats = dict()
         for line in data.split("\n"):
             if ':' in line:
-                k, v = line.split(':')
+                k, v = line.split(':', 1)
                 k = k.strip()
                 v = v.strip()
                 stats[k] = v

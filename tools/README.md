@@ -69,22 +69,22 @@ List duplicates in multiple directories (recursively traversing each one): <br>
 	`dupmanage.py -R list duplicates in1 in2 in3` <br>
 Dry-run option supported (`-D`) to emulate write operations and see what would happen during normal run.<br>
 Some shorthands for commands are supported: `duplicates` = `dup`, `list` = `ls`, etc.<br>
-#### dupmanage FAQ
+### dupmanage FAQ
 Q: **How many input directories are supported at most?** <br>
-A: This is usually limited by available RAM and the user's patience. <br><br>
+A: This is usually limited by available RAM and the user's patience. <br>
 
-Q: **Script errors with message like "incorrect action" or "incorrect input type" or "no output dir specified". What do I do?** <br>
+Q: **Script exits with error message like "incorrect action" or "incorrect input type" or "no output dir specified". What do I do?** <br>
 A: Probably you don't follow correct order of positional arguments or mix and match order of positional and optional ones. <br>
 Good examples that will work: `dupmanage.py -v -s ls dup "in/*" "in2/*"` or `dupmanage.py -vs ls dup "in/*" "in2/*" -R` <br>
-Bad examples that will not work: `dupmanage.py ls -v dup "in/*"`, `dupmanage.py ls dup -R "in/*"` or `dupmanage.py ls dup "in/*" -s "in2/*`. <br>
-Simply put, always make sure that action, type of input files and input dirs come in a row. Optional args may be put before and/or after positional args and input directories. <br><br>
+Bad examples that will not work: `dupmanage.py ls -v dup "in/*"`, `dupmanage.py ls dup -R "in/*"` or `dupmanage.py ls dup "in/*" -s "in2/*"`. <br>
+Simply put, always make sure that action, type of input files and input dirs come in a row. Optional args may be put before and/or after positional args and input directories. <br>
 
 Q: **Should I quote input pattern(s)?** <br>
-A: If you have many input files, yes. In other cases you may leave pattern matching to your shell. <br><br>
+A: If you have many input files, yes. In other cases you may leave pattern matching to your shell. <br>
 
 Q: **Why use "mixed" instead of "unique"? I wan't unique files in result!**<br>
 A: When running dupmanage you're NOT asking for the RESULT to consist of UNIQUE files, you're telling dupmanage to process UNIQUE INPUT files.<br>
-More explanation: "unique" type works on input files that don't have any copies. This means file with such contents (hash sum) should only appear once. If two files share the same hash sum, then both files are considered duplicates in terms of this script. "Mixed" type takes both unique and duplicate files but eliminates redundant duplicates: unique files are processed as is, but only one file in group of duplicates gets processed. <br><br>
+More explanation: "unique" type works on input files that don't have any copies. This means file with such contents (hash sum) should only appear once. If two files share the same hash sum, then both files are considered duplicates in terms of this script. "Mixed" type takes both unique and duplicate files but eliminates redundant duplicates: unique files are processed as is, but only one file in group of duplicates gets processed. <br>
 
 Q: **Are there any use cases apart from storing fuzzing samples?** <br>
 A: Why yes! You can search for duplicate junk like copied documents or media files, but beware: script doesn't check names or timestamps of input files. <br><br>
@@ -114,20 +114,20 @@ Same as in previous example, time measured in seconds: <br>
 fuzzman.py was developed for use with (and tested on) AFL++.
 <br>
 
-#### fuzzman FAQ
+### fuzzman FAQ
 Q: **Why?** <br>
-A: I am too lazy to run same commands by hand, especially on many available cores. Yes, there are many tools to automate running many AFL instances, but I also wanted specific features: dynamic status screens changing by themselves, terminating fuzzing job if there were no new execution paths in e.g. 1 day. <br><br>
+A: I am too lazy to run same commands by hand, especially on many available cores. Yes, there are many tools to automate running many AFL instances, but I also wanted specific features: dynamic status screens changing by themselves, terminating fuzzing job if there were no new execution paths in e.g. 1 day. <br>
 
 Q: **Does it work with WinAFL?** <br>
-A: Well, kind of. It's a bit tricky, but possible: don't use Windows style slashes because it seem to drive subprocess.Popen crazy. <br>
-Example in PowerShell: <br>
+A: Yes. Well, kind of. It's a bit tricky, but possible: don't use Windows style slashes because it seem to drive subprocess.Popen crazy. <br>
+Example in PowerShell (keep in mind that you are not limited to using absolute paths): <br>
 ```
-PS > ./fuzzman.py --fuzzer-binary D:/winafl/build64/bin/Release/afl-fuzz.exe --more-args "-t 5000 -D D:/dynamorio/build/bin64/ -- -coverage_module 7z.exe -coverage_module 7z.dll -target_module 7z.exe -target_offset 0x4853C -nargs 2 -fuzz_iterations 1000" D:/subjects/7-Zip/7z.exe t '@@'
+PS > ./fuzzman.py -i D:/fuzz/in -o D:/fuzz/out --fuzzer-binary D:/WinAFL/bin64/afl-fuzz.exe -P --more-args "-t 5000 -D D:/DynRIO/bin64/ -- -coverage_module 7z.exe -coverage_module 7z.dll -target_module 7z.exe -target_offset 0x4853C -nargs 2 -fuzz_iterations 1000" D:/fuzz/7-Zip/7z.exe t '@@'
 ```
-
+*At this moment WinAFL support is very limited: status screen looks 'not OK' and you can't even expect a proper exit with Ctrl+C, in fact you will probably have to kill remaining processes via Task Manager :(* <br>
 
 Q: **Fuzzman exits because all instances failed to start. How to fix???** <br>
-A: Please try starting one AFL instance to inspect error message (by copying one of the commands kindly provided by fuzzman). Probably you need to run `afl-system-config` or something. <br><br>
+A: Please try starting one AFL instance to inspect error message (by copying one of the commands kindly provided by fuzzman). Probably you need to run `afl-system-config` or something. <br>
 
 Q: **What happens if some fuzzer instance will stop working?** <br>
 A: Fuzzman will restart dead fuzzer processes on its own. If restarted instance doesn't start working (several times in a row), fuzzman will stop trying to restart it. <br><br>
