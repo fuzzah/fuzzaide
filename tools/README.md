@@ -133,6 +133,38 @@ Q: **What happens if some fuzzer instance will stop working?** <br>
 A: Fuzzman will restart dead fuzzer processes on its own. If restarted instance doesn't start working (several times in a row), fuzzman will stop trying to restart it. <br><br>
 
 
+### pcap2raw.py
+This Python script may be used to extract raw packets from PCAP files. <br>
+Resulting files are then suitable for fuzzing network applications (with e.g. preeny). <br>
+**Beware that this script saves each packet to separate file, be careful with large input files (dry-run supported with `-D`).** <br>
+C-string output supported to assist with simple reproducer/exploit scripts creation. For general PCAP-reproducing one may use tcpreplay or better tcpprep and tcpreplay-edit (tools come with Wireshark). <br>
+**pcap2raw.py requires scapy to be installed:**
+```
+$ python3 -m pip install -U scapy --user
+```
+Invocation examples: <br>
+Read packets from one file and display them as C-strings: <br>
+        `pcap2raw.py -i http.pcap -C` <br>
+Same, but save packets to files ./out/http1.raw, ./out/http2.raw, etc: <br>
+        `pcap2raw.py -i http.pcap --prefix http --ext raw -o ./out` <br>
+Recursively extract packets from all cap, pcap and pcapng files in input dir: <br>
+        `pcap2raw.py -r -i input/ -o ./out` <br>
+Specify custom match pattern: <br>
+        `pcap2raw.py -r -i input/ --filter "*" -o ./out` <br>
+Recursively extract packets from cap, pcap and pcapng in multiple input dirs: <br>
+        `pcap2raw.py -r -i in1/ in2/ in3/ -o ./out` <br>
+Perform non-recursive, but pattern-matching scan: <br>
+        `pcap2raw.py -i "./dir/*http*.*cap*" -o ./out` <br>
+Perform recursive, pattern-matching scan (pattern should match directories): <br>
+        `pcap2raw.py -ri "./dir/pcaps-*" -o ./out` <br>
+
+### pcap2raw FAQ
+Q: **Can't Wireshark do the same?** <br>
+A: Wireshark can only dump packets one by one, you'd have to click on each one and save them "by hand". <br>
+
+Q: **Is there any deduplication of packets?** <br>
+A: Yes, input packets are checked so that no duplicates are saved or displayed, but existing files in output directory are not checked. For such a check one may use dupmanage.py (see above).<br>
+
 ### split-dir-contents.py
 This Python script may be used to "split" given directory into multiple directories by copying/moving files. For example, let's say some tool can only work with up to 100 files, otherwise it hangs.<br>
 In this case you can invoke split-dir-contents.py as follows:<br>
