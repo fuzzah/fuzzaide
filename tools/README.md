@@ -163,7 +163,7 @@ Q: **Can't Wireshark do the same?** <br>
 A: Wireshark can only dump packets one by one, you'd have to click on each one and save them "by hand". <br>
 
 Q: **Is there any deduplication of packets?** <br>
-A: Yes, input packets are checked so that no duplicates are saved or displayed, but existing files in output directory are not checked. For such a check one may use dupmanage.py (see above).<br>
+A: Yes, input packets are checked so that no duplicates are saved or displayed, but existing files in output directory are not checked. For such a check one may use dupmanage.py (see above). To process all packets (with possible duplicates) one may use `--allow-duplicates`. <br>
 
 ### split-dir-contents.py
 This Python script may be used to "split" given directory into multiple directories by copying/moving files. For example, let's say some tool can only work with up to 100 files, otherwise it hangs.<br>

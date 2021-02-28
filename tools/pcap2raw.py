@@ -87,6 +87,14 @@ def main():
     )
 
     parser.add_argument(
+        "-a",
+        "-A",
+        "--allow-duplicates",
+        help="don't check if same packet was processed already",
+        action="store_true",
+    )
+
+    parser.add_argument(
         "-v", "--verbose", help="print more messages", action="store_true"
     )
     parser.add_argument(
@@ -211,7 +219,7 @@ def main():
                 for p in packets:
                     raw = bytes(p)
                     h = sha1(raw)
-                    if h not in used_hashes:
+                    if args.allow_duplicates or h not in used_hashes:
                         used_hashes.add(h)
                         num_processed += 1
                         raw = "".join("\\x%02X" % byte for byte in raw)
@@ -219,25 +227,29 @@ def main():
 
             else:
                 for i, p in enumerate(packets):
-                    fname = get_next_path()
-                    verbose("Saving packet #%d to %s" % (i + 1, fname), file=sys.stderr)
-                    if args.dry_run:
-                        num_processed += 1
-                        continue
+                    raw = bytes(p)
+                    h = sha1(raw)
+                    if args.allow_duplicates or h not in used_hashes:
+                        used_hashes.add(h)
+                        fname = get_next_path()
+                        verbose("Saving packet #%d to %s" % (i + 1, fname), file=sys.stderr)
+                        if args.dry_run:
+                            num_processed += 1
+                            continue
 
-                    try:
-                        with open(fname, "wb") as f:
-                            f.write(bytes(p))
-                    except Exception as e:
-                        print(
-                            "Wasn't able to save packet #"
-                            + str(i + 1)
-                            + " to file "
-                            + fname,
-                            file=sys.stderr,
-                        )
-                    else:
-                        num_processed += 1
+                        try:
+                            with open(fname, "wb") as f:
+                                f.write(raw)
+                        except Exception as e:
+                            print(
+                                "Wasn't able to save packet #"
+                                + str(i + 1)
+                                + " to file "
+                                + fname,
+                                file=sys.stderr,
+                            )
+                        else:
+                            num_processed += 1
         else:
             verbose("Checking directory", filepath, file=sys.stderr)
             if level == 0 or args.recursive:
