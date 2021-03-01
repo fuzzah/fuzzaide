@@ -6,8 +6,6 @@ import glob
 import argparse
 from hashlib import sha1
 
-from collections import OrderedDict
-
 
 try:
     from scapy.all import rdpcap
@@ -232,7 +230,9 @@ def main():
                     if args.allow_duplicates or h not in used_hashes:
                         used_hashes.add(h)
                         fname = get_next_path()
-                        verbose("Saving packet #%d to %s" % (i + 1, fname), file=sys.stderr)
+                        verbose(
+                            "Saving packet #%d to %s" % (i + 1, fname), file=sys.stderr
+                        )
                         if args.dry_run:
                             num_processed += 1
                             continue
