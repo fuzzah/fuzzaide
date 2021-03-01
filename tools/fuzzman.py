@@ -478,9 +478,11 @@ class FuzzManager:
         newest_hang_stamp = 0
         newest_crash_stamp = 0
 
+        sum_execs = 0
         sum_paths = 0
         sum_hangs = 0
         sum_crashes = 0
+        sum_restarts = 0
 
         for idx, instance in enumerate(self.procs, start=1):
             stats = self.get_fuzzer_stats(output_dir, idx, instance)
@@ -499,9 +501,11 @@ class FuzzManager:
             paths_total = int(stats.get("paths_total", 0))
             paths_found = int(stats.get("paths_found", 0))
 
+            sum_restarts += instance.total_restarts
             sum_crashes += crashes
             sum_hangs += hangs
             sum_paths += paths_total
+            sum_execs += int(stats.get("execs_done", 0))
 
             print(
                 "\tcrashes: %d, hangs: %d, paths total: %d"
@@ -526,6 +530,25 @@ class FuzzManager:
             return False
 
         print("\nStats of this fuzzing job:")
+        e = float(sum_execs)
+        c = ''
+        if e >= 1_000_000_000:
+            e /= 1_000_000_000
+            c = 'B'
+        elif e >= 1_000_000:
+            e /= 1_000_000
+            c = 'M'
+        elif e >= 1000:
+            e /= 1000
+            c = 'K'
+        
+        if len(c) > 0:
+            if c == 'B':
+                print("  Execs: %.4f%c" % (e,c))
+            else:
+                print("  Execs: %.2f%c" % (e,c))
+        else:
+            print("  Execs: %.0f%c" % (e,c))
 
         now = int(datetime.now().timestamp())
 
@@ -546,6 +569,9 @@ class FuzzManager:
             print("Crashes: %d. Last new crash: %s ago" % (sum_crashes, seconds_fmt))
         else:
             print("Crashes: 0")
+        
+        if sum_restarts > 0:
+            print("Fuzzer restarts: %d" % (sum_restarts,))
 
         # now decide if we need to stop
         if no_paths_time_substr is not None:
