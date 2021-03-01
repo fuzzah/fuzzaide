@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# file    :  pcap2raw.py
+# repo    :  https://github.com/fuzzah/fuzzaide
+# author  :  https://github.com/fuzzah
+# license :  MIT
+# check repository for more information
+
 import os
 import sys
 import glob
