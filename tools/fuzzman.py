@@ -204,6 +204,7 @@ class FuzzManager:
         self.lastshown = 0
         self.args = args
         self.waited_for_child = False
+        self.start_time = int(datetime.now().timestamp())
 
     def start(self, env={}):
         args = self.args
@@ -298,6 +299,7 @@ class FuzzManager:
                     name=worker_name, cmd=cmd, env=worker_env, verbose=args.verbose
                 )
             )
+        self.start_time = int(datetime.now().timestamp())
 
     def stop(self, grace_sig=signal.SIGINT):
         print("Stopping processes")
@@ -315,6 +317,9 @@ class FuzzManager:
         for proc in self.procs:
             proc.stop(force=True)
         self.procs = []
+
+        job_duration = int(datetime.now().timestamp()) - self.start_time
+        print("Fuzzing job duration: %s" % (self.format_seconds(job_duration),))
 
     def health_check(self):
         if len(self.procs) < 1:
@@ -465,7 +470,7 @@ class FuzzManager:
 
         return "%d sec" % (s,)
 
-    def job_status_check(self, no_paths_time=None):
+    def job_status_check(self):
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
         """
@@ -496,6 +501,7 @@ class FuzzManager:
                 status = ""
 
             print("Worker " + instance.name + " is " + status + "running")
+
             crashes = int(stats.get("unique_crashes", 0))
             hangs = int(stats.get("unique_hangs", 0))
             paths_total = int(stats.get("paths_total", 0))
@@ -530,6 +536,10 @@ class FuzzManager:
             return False
 
         print("\nStats of this fuzzing job:")
+
+        job_duration = int(datetime.now().timestamp()) - self.start_time
+        print("Duration: %s" % (self.format_seconds(job_duration),))
+
         e = float(sum_execs)
         c = ""
         if e >= 1_000_000_000:
@@ -544,39 +554,45 @@ class FuzzManager:
 
         if len(c) > 0:
             if c == "B":
-                print("  Execs: %.4f%c" % (e, c))
+                print("   Execs: %.4f%c" % (e, c))
             else:
-                print("  Execs: %.2f%c" % (e, c))
+                print("   Execs: %.2f%c" % (e, c))
         else:
-            print("  Execs: %.0f%c" % (e, c))
+            print("   Execs: %.0f%c" % (e, c))
 
         now = int(datetime.now().timestamp())
 
         newest_path_delta = now - newest_path_stamp
         newest_path_fmt = self.format_seconds(newest_path_delta)
-        print("  Paths: %d. Last new path: %s ago" % (sum_paths, newest_path_fmt))
+        print("   Paths: %d.\tLast new path: %s ago" % (sum_paths, newest_path_fmt))
 
         if sum_hangs > 0:
             delta = now - newest_hang_stamp
             seconds_fmt = self.format_seconds(delta)
-            print("  Hangs: %d. Last new hang: %s ago" % (sum_hangs, seconds_fmt))
+            print("   Hangs: %d.\tLast new hang: %s ago" % (sum_hangs, seconds_fmt))
         else:
-            print("  Hangs: 0")
+            print("   Hangs: 0")
 
         if sum_crashes > 0:
             delta = now - newest_crash_stamp
             seconds_fmt = self.format_seconds(delta)
-            print("Crashes: %d. Last new crash: %s ago" % (sum_crashes, seconds_fmt))
+            print(" Crashes: %d.\tLast new crash: %s ago" % (sum_crashes, seconds_fmt))
         else:
-            print("Crashes: 0")
+            print(" Crashes: 0")
 
         if sum_restarts > 0:
             print("Fuzzer restarts: %d" % (sum_restarts,))
 
         # now decide if we need to stop
-        if no_paths_time is not None:
-            if no_paths_time <= newest_path_delta:
-                return True
+        if (
+            self.args.no_paths_stop is not None
+            and self.args.no_paths_stop <= newest_path_delta
+        ):
+            if self.args.minimal_job_duration is not None:
+                job_time = now - self.start_time
+                if job_time < self.args.minimal_job_duration:
+                    return False
+            return True
 
         return False
 
@@ -620,6 +636,11 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                     "in the last 1 hour and 5 minutes (which is 3900 seconds)",
                     "--no-paths-stop 3900 ./myapp",
                 ],
+                [
+                    "Same as above but make sure that fuzzing job runs for at least 8 hours "
+                    "(which is 28800 seconds)",
+                    "--minimal-job-duration 28800 --no-paths-stop 3900 ./myapp"
+                ]
             ]
             for action, cmd in examples:
                 self.print_example(action, cmd)
@@ -702,6 +723,13 @@ def main():
         type=int,
     )
     parser.add_argument(
+        "--minimal-job-duration",
+        metavar="N",
+        help="don't stop fuzzing job earlier than N seconds from start (default: stop if --no-paths-stop specified)",
+        default=None,
+        type=int,
+    )
+    parser.add_argument(
         "-v", "--verbose", help="print more messages", action="store_true"
     )
     # TODO:
@@ -724,7 +752,14 @@ def main():
 
     if args.no_paths_stop and args.no_paths_stop < 1:
         sys.exit(
-            "Error: bad value used for --no-paths-stop. You should specify number of seconds (e.g. --no-paths-stop 600)"
+            "Error: bad value used for --no-paths-stop. You should specify number of seconds "
+            "(e.g. --no-paths-stop 600)"
+        )
+
+    if args.minimal_job_duration and args.minimal_job_duration < 1:
+        sys.exit(
+            "Error: bad value used for --minimal-job-duration. You should specify number of seconds "
+            "(e.g. --minimal-job-duration 3600)"
         )
 
     fuzzman = FuzzManager(args)
@@ -754,7 +789,7 @@ def main():
         sys.stdout.buffer.write(TERM_CLEAR)
 
         # this function displays stats and decides if we need to stop current fuzzing job
-        if fuzzman.job_status_check(no_paths_time=args.no_paths_stop):
+        if fuzzman.job_status_check():
             print("Stop condition met. Stopping current fuzzing job...")
             retcode = 0
             break

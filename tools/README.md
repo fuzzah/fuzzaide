@@ -107,6 +107,8 @@ Specify non-default fuzzer in PATH: <br>
 	`fuzzman.py --fuzzer-binary py-afl-fuzz ./myapp` <br>
 Stop if no new paths have been discovered across all fuzzers in the last 1 hour and 5 minutes (which is 3900 seconds): <br>
 	`fuzzman.py --no-paths-stop 3900 ./myapp` <br>
+Same as above but make sure that fuzzing job runs for at least 8 hours (which is 28800 seconds): <br>
+	`fuzzman.py --minimal-job-duration 28800 --no-paths-stop 3900 ./myapp` <br>
 fuzzman.py was developed for use with (and tested on) AFL++.
 <br>
 
