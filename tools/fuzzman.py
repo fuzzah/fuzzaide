@@ -302,10 +302,16 @@ class FuzzManager:
         self.start_time = int(datetime.now().timestamp())
 
     def stop(self, grace_sig=signal.SIGINT):
-        print("Stopping processes")
-
         if len(self.procs) < 1:
             return
+        
+        if self.args.dump_screens:
+            print("Dumping status screens")
+            self.dump_status_screens()
+        else:
+            print("Stopping processes")
+        
+        self.job_status_check(onlystats=True)
 
         for proc in self.procs:
             proc.stop(grace_sig=grace_sig)
@@ -317,9 +323,7 @@ class FuzzManager:
         for proc in self.procs:
             proc.stop(force=True)
         self.procs = []
-
-        job_duration = int(datetime.now().timestamp()) - self.start_time
-        print("Fuzzing job duration: %s" % (self.format_seconds(job_duration),))
+        
 
     def health_check(self):
         if len(self.procs) < 1:
@@ -334,7 +338,7 @@ class FuzzManager:
         print("%d/%d workers report OK status" % (num_ok, len(self.procs)))
         return num_ok > 0
 
-    def display_next_status_screen(self):
+    def display_next_status_screen(self, outfile=sys.stdout, dump=False):
         if len(self.procs) < 1:
             print("No status screen to show")
             return
@@ -346,22 +350,28 @@ class FuzzManager:
 
         instance = self.procs[self.lastshown]
         if instance.proc.poll() is None:  # process is still running
-            sys.stdout.buffer.write(CURSOR_HIDE)
-            for _ in range(100):
+            outfile.buffer.write(CURSOR_HIDE)
+            if dump:
+                num_dumps = 1
+            else:
+                num_dumps = 100
+            
+            for _ in range(num_dumps):
                 data = instance.get_output(24)
                 if not self.args.no_drawing_workaround and len(data) > 0:
                     data[0] = data[0].replace(mqj, b"")
 
                 for line in data:
-                    sys.stdout.buffer.write(line)
+                    outfile.buffer.write(line)
 
                 if not self.args.no_drawing_workaround and len(data) > 0:
-                    sys.stdout.buffer.write(
+                    outfile.buffer.write(
                         SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1
                     )
 
-                sleep(0.05)
-            sys.stdout.buffer.write(CURSOR_SHOW)
+                if not dump:
+                    sleep(0.05)
+            outfile.buffer.write(CURSOR_SHOW)
         else:  # process is not running
             if not self.waited_for_child:
                 try:
@@ -373,14 +383,24 @@ class FuzzManager:
 
             data = instance.get_output(29)
             for line in data:
-                sys.stdout.buffer.write(line)
-            sleep(5.0)
+                outfile.buffer.write(line)
+            if not dump:
+                sleep(5.0)
 
         sys.stdout.buffer.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
 
         if len(self.procs) > 0:
             self.lastshown += 1
             self.lastshown %= len(self.procs)
+    
+    def dump_status_screens(self, outfile=sys.stdout):
+        self.lastshown = 0
+        for _ in self.procs:
+            #outfile.buffer.write(TERM_CLEAR)
+            outfile.buffer.write(b"\n"*40)
+            self.display_next_status_screen(outfile=outfile, dump=True)
+        
+        outfile.buffer.write(b"\n\n")
 
     def get_fuzzer_stats(self, output_dir, idx, instance):
         """
@@ -470,7 +490,7 @@ class FuzzManager:
 
         return "%d sec" % (s,)
 
-    def job_status_check(self):
+    def job_status_check(self, onlystats=False):
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
         """
@@ -495,13 +515,6 @@ class FuzzManager:
             if stats is None:
                 continue
 
-            if instance.proc.poll():
-                status = "NOT "
-            else:
-                status = ""
-
-            print("Worker " + instance.name + " is " + status + "running")
-
             crashes = int(stats.get("unique_crashes", 0))
             hangs = int(stats.get("unique_hangs", 0))
             paths_total = int(stats.get("paths_total", 0))
@@ -513,14 +526,22 @@ class FuzzManager:
             sum_paths += paths_total
             sum_execs += int(stats.get("execs_done", 0))
 
-            print(
-                "\tcrashes: %d, hangs: %d, paths total: %d"
-                % (crashes, hangs, paths_total)
-            )
-            print(
-                "\tpaths discovered: %d (%.2f%% of total paths)"
-                % (paths_found, 100.0 * paths_found / paths_total)
-            )
+            if not onlystats:
+                if instance.proc.poll():
+                    status = "NOT "
+                else:
+                    status = ""
+                    
+                print("Worker " + instance.name + " is " + status + "running")
+
+                print(
+                    "\tcrashes: %d, hangs: %d, paths total: %d"
+                    % (crashes, hangs, paths_total)
+                )
+                print(
+                    "\tpaths discovered: %d (%.2f%% of total paths)"
+                    % (paths_found, 100.0 * paths_found / paths_total)
+                )
 
             newest_path_stamp = self.update_stat_timestamp(
                 stats, "last_path", newest_path_stamp
@@ -532,13 +553,14 @@ class FuzzManager:
                 stats, "last_crash", newest_crash_stamp
             )
 
-        if newest_path_stamp == 0:
-            return False
-
         print("\nStats of this fuzzing job:")
-
         job_duration = int(datetime.now().timestamp()) - self.start_time
         print("Duration: %s" % (self.format_seconds(job_duration),))
+
+        if newest_path_stamp == 0:
+            if not onlystats:
+                print("\nNo more stats to display (yet)")
+            return False
 
         e = float(sum_execs)
         c = ""
@@ -730,6 +752,11 @@ def main():
         type=int,
     )
     parser.add_argument(
+        "--dump-screens",
+        help="dump all status screens on job stop (default: don't dump)",
+        action="store_true",
+    )
+    parser.add_argument(
         "-v", "--verbose", help="print more messages", action="store_true"
     )
     # TODO:
@@ -762,6 +789,7 @@ def main():
             "(e.g. --minimal-job-duration 3600)"
         )
 
+    retcode = 7
     fuzzman = FuzzManager(args)
 
     def handler(_signo, _stack_frame):
@@ -775,7 +803,6 @@ def main():
     fuzzman.start()
 
     # input("Workers are running. Press enter to start monitoring mode")
-
     while True:
         sys.stdout.buffer.write(TERM_CLEAR)
         if not fuzzman.health_check():  # this check also prints alive status of workers
@@ -790,13 +817,16 @@ def main():
 
         # this function displays stats and decides if we need to stop current fuzzing job
         if fuzzman.job_status_check():
-            print("Stop condition met. Stopping current fuzzing job...")
+            print("STOP CONDITION MET. Stopping current fuzzing job...")
             retcode = 0
             break
         sleep(5.0)
 
     fuzzman.stop()
 
+    if retcode == 0:
+        print("STOP CONDITION MET")
+    
     return retcode
 
 
