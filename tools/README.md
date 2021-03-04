@@ -105,11 +105,7 @@ Specify non-default fuzzer (it should follow same command syntax as AFL): <br>
 	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator ./myapp` <br>
 Specify non-default fuzzer in PATH: <br>
 	`fuzzman.py --fuzzer-binary py-afl-fuzz ./myapp` <br>
-Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes: <br>
-	`fuzzman.py --no-paths-stop "1 hrs, 5 min" ./myapp` <br>
-Same as in previous example: <br>
-	`fuzzman.py --no-paths-stop "1 hrs, 5" ./myapp` <br>
-Same as in previous example, time measured in seconds: <br>
+Stop if no new paths have been discovered across all fuzzers in the last 1 hour and 5 minutes (which is 3900 seconds): <br>
 	`fuzzman.py --no-paths-stop 3900 ./myapp` <br>
 fuzzman.py was developed for use with (and tested on) AFL++.
 <br>

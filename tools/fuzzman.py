@@ -465,7 +465,7 @@ class FuzzManager:
 
         return "%d sec" % (s,)
 
-    def job_status_check(self, no_paths_time_substr=None):
+    def job_status_check(self, no_paths_time=None):
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
         """
@@ -531,24 +531,24 @@ class FuzzManager:
 
         print("\nStats of this fuzzing job:")
         e = float(sum_execs)
-        c = ''
+        c = ""
         if e >= 1_000_000_000:
             e /= 1_000_000_000
-            c = 'B'
+            c = "B"
         elif e >= 1_000_000:
             e /= 1_000_000
-            c = 'M'
+            c = "M"
         elif e >= 1000:
             e /= 1000
-            c = 'K'
-        
+            c = "K"
+
         if len(c) > 0:
-            if c == 'B':
-                print("  Execs: %.4f%c" % (e,c))
+            if c == "B":
+                print("  Execs: %.4f%c" % (e, c))
             else:
-                print("  Execs: %.2f%c" % (e,c))
+                print("  Execs: %.2f%c" % (e, c))
         else:
-            print("  Execs: %.0f%c" % (e,c))
+            print("  Execs: %.0f%c" % (e, c))
 
         now = int(datetime.now().timestamp())
 
@@ -569,16 +569,13 @@ class FuzzManager:
             print("Crashes: %d. Last new crash: %s ago" % (sum_crashes, seconds_fmt))
         else:
             print("Crashes: 0")
-        
+
         if sum_restarts > 0:
             print("Fuzzer restarts: %d" % (sum_restarts,))
 
         # now decide if we need to stop
-        if no_paths_time_substr is not None:
-            if no_paths_time_substr.isnumeric:
-                if int(no_paths_time_substr) <= newest_path_delta:
-                    return True
-            elif no_paths_time_substr in newest_path_fmt:
+        if no_paths_time is not None:
+            if no_paths_time <= newest_path_delta:
                 return True
 
         return False
@@ -619,12 +616,8 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                     "--fuzzer-binary py-afl-fuzz ./myapp",
                 ],
                 [
-                    "Stop if there were no new paths (across all fuzzers) in 1 hour and 5 minutes",
-                    '--no-paths-stop "1 hrs, 5 min" ./myapp',
-                ],
-                ["Same as in previous example", '--no-paths-stop "1 hrs, 5" ./myapp'],
-                [
-                    "Same as in previous example, time measured in seconds",
+                    "Stop if no new paths have been discovered across all fuzzers "
+                    "in the last 1 hour and 5 minutes (which is 3900 seconds)",
                     "--no-paths-stop 3900 ./myapp",
                 ],
             ]
@@ -703,10 +696,10 @@ def main():
     )
     parser.add_argument(
         "--no-paths-stop",
-        metavar="TIME",
-        help="stop when time without finds (TWF) contains TIME or if TWF becomes greater than or "
-        "equal to int(TIME) (default: don't stop)",
+        metavar="N",
+        help="stop fuzzing job if no new paths have been found in the last N seconds (default: don't stop)",
         default=None,
+        type=int,
     )
     parser.add_argument(
         "-v", "--verbose", help="print more messages", action="store_true"
@@ -729,34 +722,10 @@ def main():
         )
         return 3
 
-    if args.no_paths_stop:
-        args.no_paths_stop = args.no_paths_stop.strip()
-        if "se" in args.no_paths_stop or " s" in args.no_paths_stop:
-            # TODO: rewrite it to be SHORT and INFORMATIVE
-            msg = (
-                "Error: don't specify exact number of seconds in --no-paths-stop, "
-                + parser.prog
-                + " is not that precise."
-            )
-            msg += (
-                "\n  You probably want to check if time without new paths is LONGER than '"
-                + args.no_paths_stop
-                + "', "
-                "but "
-                + parser.prog
-                + " will search it as a substring in string like '2 days, 13 hrs, 9 min, 37 sec' "
-            )
-            msg += (
-                "\n  You can specify exact number of seconds just as a number. This number will be compared to "
-                "time without finds measured in seconds. "
-            )
-            msg += (
-                "\n  For example, this command will stop fuzzing job AFTER one hour and one second: "
-                "\n\t" + sys.argv[0] + " --no-paths-stop 3601 ./myapp"
-            )
-            msg += "\nSee -h/--help for more examples"
-            print(msg, file=sys.stderr)
-            return 3
+    if args.no_paths_stop and args.no_paths_stop < 1:
+        sys.exit(
+            "Error: bad value used for --no-paths-stop. You should specify number of seconds (e.g. --no-paths-stop 600)"
+        )
 
     fuzzman = FuzzManager(args)
 
@@ -785,7 +754,7 @@ def main():
         sys.stdout.buffer.write(TERM_CLEAR)
 
         # this function displays stats and decides if we need to stop current fuzzing job
-        if fuzzman.job_status_check(no_paths_time_substr=args.no_paths_stop):
+        if fuzzman.job_status_check(no_paths_time=args.no_paths_stop):
             print("Stop condition met. Stopping current fuzzing job...")
             retcode = 0
             break
