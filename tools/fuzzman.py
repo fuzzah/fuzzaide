@@ -238,15 +238,14 @@ class FuzzManager:
             except OSError:
                 sys.exit("Wasn't able to create input corpus")
 
-        if args.cleanup:
-            if os.path.isdir(args.output_dir):
-                print("Removing directory '%s'" % args.output_dir)
-                try:
-                    shutil.rmtree(args.output_dir, ignore_errors=True)
-                except shutil.Error:
-                    sys.exit(
-                        "Wasn't able to remove output directory '%s'" % args.output_dir
-                    )
+        if args.cleanup and os.path.isdir(args.output_dir):
+            print("Removing directory '%s'" % args.output_dir)
+            try:
+                shutil.rmtree(args.output_dir, ignore_errors=True)
+            except shutil.Error:
+                sys.exit(
+                    "Wasn't able to remove output directory '%s'" % args.output_dir
+                )
 
         for i in range(args.instances):
             dictionary = ""
@@ -304,13 +303,13 @@ class FuzzManager:
     def stop(self, grace_sig=signal.SIGINT):
         if len(self.procs) < 1:
             return
-        
+
         if self.args.dump_screens:
             print("Dumping status screens")
             self.dump_status_screens()
         else:
             print("Stopping processes")
-        
+
         self.job_status_check(onlystats=True)
 
         for proc in self.procs:
@@ -323,7 +322,6 @@ class FuzzManager:
         for proc in self.procs:
             proc.stop(force=True)
         self.procs = []
-        
 
     def health_check(self):
         if len(self.procs) < 1:
@@ -355,7 +353,7 @@ class FuzzManager:
                 num_dumps = 1
             else:
                 num_dumps = 100
-            
+
             for _ in range(num_dumps):
                 data = instance.get_output(24)
                 if not self.args.no_drawing_workaround and len(data) > 0:
@@ -365,9 +363,7 @@ class FuzzManager:
                     outfile.buffer.write(line)
 
                 if not self.args.no_drawing_workaround and len(data) > 0:
-                    outfile.buffer.write(
-                        SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1
-                    )
+                    outfile.buffer.write(SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1)
 
                 if not dump:
                     sleep(0.05)
@@ -392,14 +388,14 @@ class FuzzManager:
         if len(self.procs) > 0:
             self.lastshown += 1
             self.lastshown %= len(self.procs)
-    
+
     def dump_status_screens(self, outfile=sys.stdout):
         self.lastshown = 0
         for _ in self.procs:
-            #outfile.buffer.write(TERM_CLEAR)
-            outfile.buffer.write(b"\n"*40)
+            # outfile.buffer.write(TERM_CLEAR)
+            outfile.buffer.write(b"\n" * 40)
             self.display_next_status_screen(outfile=outfile, dump=True)
-        
+
         outfile.buffer.write(b"\n\n")
 
     def get_fuzzer_stats(self, output_dir, idx, instance):
@@ -531,7 +527,7 @@ class FuzzManager:
                     status = "NOT "
                 else:
                     status = ""
-                    
+
                 print("Worker " + instance.name + " is " + status + "running")
 
                 print(
@@ -610,10 +606,11 @@ class FuzzManager:
             self.args.no_paths_stop is not None
             and self.args.no_paths_stop <= newest_path_delta
         ):
-            if self.args.minimal_job_duration is not None:
-                job_time = now - self.start_time
-                if job_time < self.args.minimal_job_duration:
-                    return False
+            if (
+                self.args.minimal_job_duration is not None
+                and job_duration < self.args.minimal_job_duration
+            ):
+                return False
             return True
 
         return False
@@ -661,8 +658,8 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 [
                     "Same as above but make sure that fuzzing job runs for at least 8 hours "
                     "(which is 28800 seconds)",
-                    "--minimal-job-duration 28800 --no-paths-stop 3900 ./myapp"
-                ]
+                    "--minimal-job-duration 28800 --no-paths-stop 3900 ./myapp",
+                ],
             ]
             for action, cmd in examples:
                 self.print_example(action, cmd)
@@ -801,8 +798,7 @@ def main():
     signal.signal(signal.SIGINT, handler)
 
     fuzzman.start()
-
-    # input("Workers are running. Press enter to start monitoring mode")
+    
     while True:
         sys.stdout.buffer.write(TERM_CLEAR)
         if not fuzzman.health_check():  # this check also prints alive status of workers
@@ -826,7 +822,7 @@ def main():
 
     if retcode == 0:
         print("STOP CONDITION MET")
-    
+
     return retcode
 
 
