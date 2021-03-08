@@ -98,17 +98,24 @@ This uses ./in and ./out as input/output directories. If input directory doesn't
 Run 4 instances and specify in/out directories: <br>
 	`fuzzman.py -n 4 -i ../inputs/for_myapp -o ../outputs/myapp ./myapp @@` <br>
 Set memory limit of 10 kilobytes, cleanup output directory before starting: <br>
-	`fuzzman.py -m 10K -C ./myapp` <br>
+	`fuzzman.py -m 10K -C -- ./myapp` <br>
 Pass additional agruments to fuzzer: <br>
 	`fuzzman.py --more-args "-p fast" ./myapp @@` <br>
 Specify non-default fuzzer (it should follow same command syntax as AFL): <br>
-	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator ./myapp` <br>
+	`fuzzman.py --fuzzer-binary ~/git/fuzzer/obliterator -- ./myapp` <br>
 Specify non-default fuzzer in PATH: <br>
 	`fuzzman.py --fuzzer-binary py-afl-fuzz ./myapp` <br>
 Stop if no new paths have been discovered across all fuzzers in the last 1 hour and 5 minutes (which is 3900 seconds): <br>
-	`fuzzman.py --no-paths-stop 3900 ./myapp` <br>
+	`fuzzman.py --no-paths-stop 3900 -- ./myapp` <br>
 Same as above but make sure that fuzzing job runs for at least 8 hours (which is 28800 seconds): <br>
 	`fuzzman.py --minimal-job-duration 28800 --no-paths-stop 3900 ./myapp` <br>
+Simultaneously fuzz multiple builds of the same application (app in PATH: 2 cores, app_asan: 1 core, app_laf: all the remaining cores):  <br>
+	`fuzzman.py --builds app:2 /full_path/app_asan:1 ../relative_path/app_laf -- ./myapp` <br>
+Fuzz multiple builds in different dirs (~/dir_asan/test: 1 core, ~/dir_basic/test: 30% of the remaining cores, ~/dir_laf/test: all the remaining cores):  <br>
+	`fuzzman.py --builds ~/dir_basic:30% ~/dir_asan/:1 ~/dir_laf -- ./test @@` <br>
+Fuzz multiple builds giving them some build/group names (./app_laf will use 100%-50%-10% = 40% of available cores):  <br>
+	`fuzzman.py --builds basic:./app:10% something:./app2:50% addr:./app_asan:1 UB:./app_ubsan:1 paths:./app_laf -- ./app @@` <br>
+<br>
 fuzzman.py was developed for use with (and tested on) AFL++.
 <br>
 

@@ -14,6 +14,7 @@ import shutil
 import signal
 import argparse
 from time import sleep
+from pprint import pprint
 from datetime import datetime
 from collections import deque
 from threading import Thread, Lock, Event
@@ -38,11 +39,12 @@ bSTG = bSTART + cGRA
 
 
 class StreamingProcess:
-    def __init__(self, name="", cmd=None, env=None, verbose=False):
+    def __init__(self, name="", groupname="", cmd=None, env=None, verbose=False):
         if cmd is None:
             raise SyntaxError("Can't create SteamingProcess without 'cmd' parameter")
 
         self.name = name
+        self.groupname = groupname
         self.cmd = cmd
         self.env = env
         self.verbose = verbose
@@ -205,8 +207,219 @@ class FuzzManager:
         self.args = args
         self.waited_for_child = False
         self.start_time = int(datetime.now().timestamp())
+        self.cores_specified = False
+
+    def extract_instance_count(self, s):
+        """
+        Gets number of instances from strings like "5", "10%" or "66.6%"
+        """
+        count = 0
+        perc = s.endswith("%")
+        try:
+            if perc:
+                count = float(s.split("%", 1)[0])
+            else:
+                count = int(s)
+        except:
+            sys.exit(
+                "Error in --builds argument: '%s' is not convertible to number of instances (examples: 3, 66.6%%)"
+                % (s,)
+            )
+
+        return count, perc
+
+    def extract_complex_mode_params(self):
+        args = self.args
+
+        params = []
+        for b in args.builds:
+            bi = b.split(":")  # 0:1:2 -> NAME:PATH:N[%]
+            n = len(bi)
+            name = None
+            path = None
+            count = None
+            perc = False
+            if n == 1:
+                path = bi[0]
+            elif n == 2:
+                if "%" in bi[1] or bi[1].isnumeric():
+                    path = bi[0]
+                    count, perc = self.extract_instance_count(bi[1])
+                else:
+                    name = bi[0]
+                    path = bi[1]
+            elif n == 3:
+                name = bi[0]
+                path = bi[1]
+                count, perc = self.extract_instance_count(bi[2])
+            else:
+                sys.exit(
+                    "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
+                )
+            if path is not None:
+                if path.startswith('~'):
+                    path = os.path.expanduser(path)
+                params.append([name, path, count, perc])
+
+        all_dirs = all(os.path.isdir(p) for _, p, _, _ in params)
+        all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
+
+        pprint(params)
+
+        if (
+            all_dirs
+        ):  # build directories provided -> each one should contain binary with same app name
+            for i, (_, p, _, _) in enumerate(params):
+                path = os.path.normpath(os.path.join(p, args.program[0]))
+                if not os.path.isfile(path):
+                    sys.exit(
+                        "Error in --builds argument: directory '%s' does not contain '%s' (path checked: '%s')"
+                        % (p, args.program[0], path)
+                    )
+                params[i][1] = path
+        elif all_bins:  # exact binaries specified (full or partial paths or in PATH)
+            for i, (_, p, _, _) in enumerate(params):
+                if shutil.which(p) is None:
+                    sys.exit(
+                        "Error in --builds argument: file %s not found so it cannot be tested"
+                        % (p,)
+                    )
+        else:
+            sys.exit(
+                "Error: --builds should point EITHER to directories OR to binaries"
+            )
+
+        return params
+
+    def adjust_complex_mode_params(self, params):
+        """
+        For complex mode (--builds). Converts percent ratios to number of instances
+        and makes sure that each build is used at least once.
+        params is a list of 4-item lists: name, path, count/percent, is_percent
+        """
+        percsum = 0.0
+        for _, _, count, is_perc in params:
+            if count is not None and is_perc:
+                percsum += count
+
+        if percsum > 100.0:
+            if self.args.verbose:
+                print(
+                    "Info: sum of percents in --builds is %.2f%% which is not 100%%. Will proportionally adjust it"
+                    % (percsum,)
+                )
+            for i, (_, _, count, is_perc) in enumerate(params):
+                if is_perc:
+                    params[i][2] = count * 100.0 / percsum
+            percsum = 100.0
+
+        count_none = sum(1 for _, _, count, _ in params if count is None)
+
+        if count_none > 0:
+            for i, (_, _, count, _) in enumerate(params):
+                if count is None:
+                    params[i][2] = (100.0 - percsum) / count_none
+                    params[i][3] = True
+
+        count_exact = sum(count for _, _, count, is_perc in params if is_perc == False)
+        count_free = self.args.instances - count_exact
+        if count_free < 0 or (count_free == 0 and percsum > 0.0):
+            sys.exit(
+                "Error in --builds argument: not enough processor cores to fit desired configuration"
+            )
+
+        if percsum > 0.0:
+            for i, (_, _, count, is_perc) in enumerate(params):
+                if is_perc and (count <= 0.0 or count_free * params[i][2] / 100.0 < 1):
+                    params[i][2] = 1
+                    params[i][3] = False
+
+        # final normalization of percents
+        percsum = sum(p for _, _, p, is_perc in params if is_perc)
+        if percsum != 0.0 and percsum != 100.0:
+            for i, (_, _, count, is_perc) in enumerate(params):
+                if is_perc:
+                    params[i][2] = count * 100.0 / percsum
+            percsum = 100.0
+
+        count_exact = sum(count for _, _, count, is_perc in params if is_perc == False)
+        count_free = self.args.instances - count_exact
+        if count_free < 0 or (count_free == 0 and percsum > 0.0):
+            sys.exit(
+                "Error in --builds argument: not enough processor cores to fit desired configuration"
+            )
+
+        # convert all the rest rest percent ratios to number of cores
+        if percsum > 0.0:
+            for i, (_, _, p, is_perc) in enumerate(params):
+                if is_perc:
+                    params[i].append(p)
+                    params[i][2] = 0
+                else:
+                    params[i].append(0.0)
+                params[i].append(i)  # order
+
+            core_percent = 100.0 / count_free
+            while True:  # TODO: there must be a better way :(
+                params = sorted(params, key=lambda x: -x[4])
+                for i, (_, _, _, _, perc, _) in enumerate(params):
+                    if perc > 0.0:
+                        params[i][4] -= core_percent
+                        percsum -= core_percent
+                        params[i][2] += 1
+                        if percsum <= core_percent:
+                            break
+                if percsum <= core_percent:
+                    break
+
+            used_cores = sum(c for _, _, c, _, _, _ in params)
+            if used_cores != self.args.instances:
+                if self.args.verbose:
+                    print(
+                        "Math in fuzzman is junky! Fixing error with delta of %d cores"
+                        % (used_cores - self.args.instances)
+                    )
+                params = sorted(params, key=lambda x: -x[4])
+                params[0][2] -= used_cores - self.args.instances
+                if self.args.verbose:
+                    pprint(params)
+
+                used_cores = sum(c for _, _, c, _, _, _ in params)
+                if used_cores != self.args.instances:
+                    sys.exit(
+                        "Math in fuzzman is really junky! Error with delta of %d cores! "
+                        "Please create an issue with verbose run screenshot.\nFor now you may want to specify different percent/amount of cores"
+                        % (used_cores - self.args.instances)
+                    )
+
+            params = sorted(params, key=lambda x: x[5])  # return original order
+
+        params = list(
+            map(lambda x: x[0:3], params)
+        )  # leave only name, path and number of cores
+
+        used_cores = sum(c for _, _, c in params)
+        if self.cores_specified and used_cores != self.args.instances:
+            sys.exit(
+                "Error in --builds argument: less cores specified in --builds (%d) than in -n (%d)"
+                % (used_cores, self.args.instances)
+            )
+
+        if self.args.verbose:
+            print(
+                "Using %d cores out of total %d available in OS"
+                % (used_cores, os.cpu_count())
+            )
+
+        return params
 
     def start(self, env={}):
+        if self.args.instances is None:
+            self.cores_specified = False
+            self.args.instances = os.cpu_count()
+        else:
+            self.cores_specified = True
+
         args = self.args
 
         if args.instances < 1:
@@ -214,12 +427,8 @@ class FuzzManager:
 
         if shutil.which(args.fuzzer_binary) is None:
             sys.exit(
-                "File %s is not found so it cannot be used as fuzzer"
-                % args.fuzzer_binary
+                "File %s not found so it cannot be used as fuzzer" % args.fuzzer_binary
             )
-
-        if shutil.which(args.program[0]) is None:
-            sys.exit("File %s is not found so it cannot be tested" % args.program[0])
 
         if not os.path.exists(args.input_dir):
             try:
@@ -247,7 +456,35 @@ class FuzzManager:
                     "Wasn't able to remove output directory '%s'" % args.output_dir
                 )
 
-        for i in range(args.instances):
+        complex_mode = args.builds is not None and len(args.builds) > 0
+
+        params = []
+        used_builds = []
+        if complex_mode:
+            params = self.extract_complex_mode_params()
+            if args.verbose:
+                print('"Raw" params:')
+                pprint(params)
+
+            params = self.adjust_complex_mode_params(params)
+            if args.verbose:
+                print("Adjusted params:")
+                pprint(params)
+
+            for name, path, num_cores in params:
+                used_builds.extend([[name, path]] * num_cores)
+        else:
+            if shutil.which(args.program[0]) is None:
+                sys.exit("File %s not found so it cannot be tested" % args.program[0])
+            used_builds = [[None, args.program[0]]] * args.instances
+
+        if args.verbose:
+            print("Builds in use:")
+            pprint(used_builds)
+
+        # TODO: maybe split this method for basic and complex modes?
+
+        for i, (groupname, path) in enumerate(used_builds):
             dictionary = ""
 
             if i == 0:
@@ -273,8 +510,7 @@ class FuzzManager:
                 + args.input_dir
                 + " -o "
                 + args.output_dir
-                + " "
-                + "-m "
+                + " -m "
                 + args.memory_limit
                 + dictionary
                 + " "
@@ -286,7 +522,7 @@ class FuzzManager:
 
             if args.more_args:
                 cmd += " " + args.more_args
-            cmd += " -- " + " ".join(args.program)
+            cmd += " -- " + path + " " + " ".join(args.program[1:])
 
             worker_env = os.environ.copy()
             worker_env["AFL_FORCE_UI"] = "1"
@@ -295,7 +531,11 @@ class FuzzManager:
             print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
             self.procs.append(
                 StreamingProcess(
-                    name=worker_name, cmd=cmd, env=worker_env, verbose=args.verbose
+                    name=worker_name,
+                    groupname=groupname,
+                    cmd=cmd,
+                    env=worker_env,
+                    verbose=args.verbose,
                 )
             )
         self.start_time = int(datetime.now().timestamp())
@@ -528,7 +768,13 @@ class FuzzManager:
                 else:
                     status = ""
 
-                print("Worker " + instance.name + " is " + status + "running")
+                if instance.groupname is not None:
+                    print(
+                        "Worker %s of group %s is %srunning"
+                        % (instance.name, instance.groupname, status)
+                    )
+                else:
+                    print("Worker %s is %srunning" % (instance.name, status))
 
                 print(
                     "\tcrashes: %d, hangs: %d, paths total: %d"
@@ -576,7 +822,7 @@ class FuzzManager:
             else:
                 print("   Execs: %.2f%c" % (e, c))
         else:
-            print("   Execs: %.0f%c" % (e, c))
+            print("   Execs: %.0f" % (e,))
 
         now = int(datetime.now().timestamp())
 
@@ -632,7 +878,7 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 ["Fuzz ./myapp using all CPU cores until stopped by Ctrl+C", "./myapp"],
                 [
                     "Set memory limit of 10 kilobytes, cleanup output directory",
-                    "-m 10K -C ./myapp",
+                    "-m 10K -C -- ./myapp",
                 ],
                 [
                     "Pass additional agruments to fuzzer",
@@ -644,7 +890,7 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 ],
                 [
                     "Specify non-default fuzzer",
-                    "--fuzzer-binary ~/git/fuzzer/obliterator ./myapp",
+                    "--fuzzer-binary ~/git/fuzzer/obliterator -- ./myapp",
                 ],
                 [
                     "Specify non-default fuzzer in path",
@@ -653,12 +899,26 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 [
                     "Stop if no new paths have been discovered across all fuzzers "
                     "in the last 1 hour and 5 minutes (which is 3900 seconds)",
-                    "--no-paths-stop 3900 ./myapp",
+                    "--no-paths-stop 3900 -- ./myapp",
                 ],
                 [
                     "Same as above but make sure that fuzzing job runs for at least 8 hours "
                     "(which is 28800 seconds)",
                     "--minimal-job-duration 28800 --no-paths-stop 3900 ./myapp",
+                ],
+                [
+                    "Simultaneously fuzz multiple builds of the same application "
+                    "(app in PATH: 2 cores, app_asan: 1 core, app_laf: all the remaining cores)",
+                    "--builds app:2 /full_path/app_asan:1 ../relative_path/app_laf -- ./myapp",
+                ],
+                [
+                    r"Fuzz multiple builds in different dirs "
+                    r"(~/dir_asan/test: 1 core, ~/dir_basic/test: 30% of the remaining cores, ~/dir_laf/test: all the remaining cores)",
+                    r"--builds ~/dir_basic:30% ~/dir_asan/:1 ~/dir_laf -- ./test @@",
+                ],
+                [
+                    r"Fuzz multiple builds giving them some build/group names (./app_laf will use 100%-50%-10% = 40% of available cores)",
+                    r"--builds basic:./app:10% something:./app2:50% addr:./app_asan:1 UB:./app_ubsan:1 paths:./app_laf -- ./app @@",
                 ],
             ]
             for action, cmd in examples:
@@ -682,7 +942,7 @@ def main():
         "--instances",
         help="number of fuzzer instances to start (default: cpu count {%d})"
         % os.cpu_count(),
-        default=os.cpu_count(),
+        default=None,
         type=int,
     )
     parser.add_argument(
@@ -700,8 +960,16 @@ def main():
     parser.add_argument(
         "-m",
         "--memory-limit",
-        help="assign memory limit to fuzzer (default: none)",
+        help="assign memory limit to each fuzzer instance (default: none)",
         default="none",
+    )
+    parser.add_argument(
+        "--builds",
+        nargs="+",
+        metavar="[NAME:]<dir/bin path>[:N[%]]",
+        help="specify multiple binaries for fuzzing and number or percent of cores to use"
+        "(default: fuzz only one binary provided as the last argument)",
+        default=None,
     )
     parser.add_argument(
         "-C",
@@ -764,15 +1032,15 @@ def main():
         return 0
 
     args = parser.parse_args()
+
+    t_len = len(args.program)
+    if t_len < 1 or (args.program[0] == "--" and t_len < 2):
+        sys.exit(
+            "Error: you didn't specify PROGRAM you want to run. See examples: -h/--help"
+        )
+
     if args.program[0] == "--":
         del args.program[0]
-
-    if len(args.program) < 1:
-        print(
-            "Error: you didn't specify PROGRAM you want to run. See examples: -h/--help",
-            file=sys.stderr,
-        )
-        return 3
 
     if args.no_paths_stop and args.no_paths_stop < 1:
         sys.exit(
@@ -798,7 +1066,7 @@ def main():
     signal.signal(signal.SIGINT, handler)
 
     fuzzman.start()
-    
+
     while True:
         sys.stdout.buffer.write(TERM_CLEAR)
         if not fuzzman.health_check():  # this check also prints alive status of workers
