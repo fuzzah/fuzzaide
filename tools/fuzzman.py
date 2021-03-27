@@ -208,6 +208,7 @@ class FuzzManager:
         self.waited_for_child = False
         self.start_time = int(datetime.now().timestamp())
         self.cores_specified = False
+        self.num_from_file = 0
 
     def extract_instance_count(self, s):
         """
@@ -257,7 +258,7 @@ class FuzzManager:
                     "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
                 )
             if path is not None:
-                if path.startswith('~'):
+                if path.startswith("~"):
                     path = os.path.expanduser(path)
                 params.append([name, path, count, perc])
 
@@ -413,7 +414,72 @@ class FuzzManager:
 
         return params
 
+    def load_custom_cmds(self, path):
+        """
+        Load custom fuzzer commands from file specified by path.
+        Returns list of commands to run instead of fuzzman-generated commands.
+        Each element in result list is [worker_name, command]
+        """
+        cmds = []
+        if not os.path.isfile(path):
+            sys.exit("Error: file '%s' doesn't exist or it's not a file" % path)
+
+        with open(path, "rt") as f:
+            for line in f:
+                line = line.strip()
+                if len(line) < 1 or line[0] == "#":
+                    continue
+
+                cmd = line.split(":", 1)
+                if len(cmd) != 2:
+                    sys.exit(
+                        "Error: bad command in file %s: %s\nCorrect format:\n  name : command"
+                        % (path, line)
+                    )
+
+                worker = []
+                for s in cmd:
+                    s = s.strip()
+                    if len(s) < 1:
+                        sys.exit(
+                            "Error: empty worker name or command in file %s: %s\nCorrect format:\n  name : command"
+                            % (path, line)
+                        )
+
+                    worker.append(s)
+
+                if self.args.verbose:
+                    print("Loaded custom command: %s" % worker)
+
+                cmds.append(worker)
+
+        # some sanity checks
+        if len(cmds) < 1:
+            sys.exit("Error: custom commands file doesn't contain any commands to run")
+
+        unique_names = set(name for name, _ in cmds)
+        if len(unique_names) < len(cmds):
+            sys.exit("Error: custom commands file shouldn't contain duplicate names")
+
+        if not self.args.cmd_file_allow_duplicates:
+            unique_cmds = set(cmd for _, cmd in cmds)
+            if len(unique_cmds) < len(cmds):
+                sys.exit(
+                    "Error: custom commands file shouldn't contain duplicate commands (use --cmd-file-allow-duplicates to override)"
+                )
+
+        if self.cores_specified and self.args.instances != len(cmds):
+            sys.exit(
+                "Error: you have specified number of cores = %d but custom commands file %s contains %d commands"
+                % (self.args.instances, path, len(cmds))
+            )
+
+        return cmds
+
     def start(self, env={}):
+        """
+        Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file)
+        """
         if self.args.instances is None:
             self.cores_specified = False
             self.args.instances = os.cpu_count()
@@ -456,6 +522,26 @@ class FuzzManager:
                     "Wasn't able to remove output directory '%s'" % args.output_dir
                 )
 
+        if args.cmd_file is not None:
+            custom_cmds = self.load_custom_cmds(args.cmd_file)
+            for i, (worker_name, cmd) in enumerate(custom_cmds):
+                worker_env = os.environ.copy()
+                worker_env["AFL_FORCE_UI"] = "1"
+                worker_env.update(env)
+
+                print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
+                self.procs.append(
+                    StreamingProcess(
+                        name=worker_name,
+                        groupname="custom",
+                        cmd=cmd,
+                        env=worker_env,
+                        verbose=args.verbose,
+                    )
+                )
+            self.start_time = int(datetime.now().timestamp())
+            return
+
         complex_mode = args.builds is not None and len(args.builds) > 0
 
         params = []
@@ -483,6 +569,8 @@ class FuzzManager:
             pprint(used_builds)
 
         # TODO: maybe split this method for basic and complex modes?
+        if args.dump_cmd_file:
+            print("# Fuzzer commands for use with --cmd-file option of fuzzman")
 
         for i, (groupname, path) in enumerate(used_builds):
             dictionary = ""
@@ -524,20 +612,35 @@ class FuzzManager:
                 cmd += " " + args.more_args
             cmd += " -- " + path + " " + " ".join(args.program[1:])
 
-            worker_env = os.environ.copy()
-            worker_env["AFL_FORCE_UI"] = "1"
+            if args.dump_cmd_file:
+                worker_env = dict()
+            else:
+                worker_env = os.environ.copy()
+                worker_env["AFL_FORCE_UI"] = "1"
+
             worker_env.update(env)
 
-            print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
-            self.procs.append(
-                StreamingProcess(
-                    name=worker_name,
-                    groupname=groupname,
-                    cmd=cmd,
-                    env=worker_env,
-                    verbose=args.verbose,
+            if args.dump_cmd_file:
+                wenv = " ".join(k + "=" + v for k, v in worker_env.items())
+                if len(wenv) > 0:
+                    print("%s : env %s %s" % (worker_name, wenv, cmd))
+                else:
+                    print("%s : %s" % (worker_name, cmd))
+            else:
+                print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
+                self.procs.append(
+                    StreamingProcess(
+                        name=worker_name,
+                        groupname=groupname,
+                        cmd=cmd,
+                        env=worker_env,
+                        verbose=args.verbose,
+                    )
                 )
-            )
+
+        if args.dump_cmd_file:
+            sys.exit(0)
+
         self.start_time = int(datetime.now().timestamp())
 
     def stop(self, grace_sig=signal.SIGINT):
@@ -556,7 +659,8 @@ class FuzzManager:
             proc.stop(grace_sig=grace_sig)
 
         term_wait = 1.0
-        # print("Waiting %.1f seconds to check for leftover processes" % (term_wait,))
+        if self.args.verbose:
+            print("Waiting %.1f seconds to check for leftover processes" % (term_wait,))
         sleep(term_wait)
 
         for proc in self.procs:
@@ -909,7 +1013,7 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 [
                     "Simultaneously fuzz multiple builds of the same application "
                     "(app in PATH: 2 cores, app_asan: 1 core, app_laf: all the remaining cores)",
-                    "--builds app:2 /full_path/app_asan:1 ../relative_path/app_laf -- ./myapp",
+                    "--builds app:2 /full_path/app_asan:1 ../relative_path/app_laf -- ./app",
                 ],
                 [
                     r"Fuzz multiple builds in different dirs "
@@ -919,6 +1023,11 @@ class FuzzmanArgumentParser(argparse.ArgumentParser):
                 [
                     r"Fuzz multiple builds giving them some build/group names (./app_laf will use 100%-50%-10% = 40% of available cores)",
                     r"--builds basic:./app:10% something:./app2:50% addr:./app_asan:1 UB:./app_ubsan:1 paths:./app_laf -- ./app @@",
+                ],
+                [
+                    "Run fuzzer commands from file job.fzm instead of commands generated by fuzzman "
+                    "(format of each line is name:command, names should match fuzzer dirs in output dir)",
+                    "-o out/ --cmd-file job.fzm",
                 ],
             ]
             for action, cmd in examples:
@@ -936,7 +1045,6 @@ def main():
         metavar="...",
         help="program with its arguments (example: ./myapp --file @@)",
     )
-
     parser.add_argument(
         "-n",
         "--instances",
@@ -949,7 +1057,7 @@ def main():
         "-i", "--input-dir", help="input directory (default: ./in)", default="./in"
     )
     parser.add_argument(
-        "-o", "--output-dir", help="output directory (default: ./out)", default="./out"
+        "-o", "--output-dir", help="output directory (default: ./out)", default=None
     )
     parser.add_argument(
         "-x",
@@ -970,6 +1078,16 @@ def main():
         help="specify multiple binaries for fuzzing and number or percent of cores to use"
         "(default: fuzz only one binary provided as the last argument)",
         default=None,
+    )
+    parser.add_argument(
+        "--cmd-file",
+        help="read custom fuzzer commands from file (incompatible with --builds)",
+        default=None,
+    )
+    parser.add_argument(
+        "--cmd-file-allow-duplicates",
+        help="allow duplicate commands (but not names!) in --cmd-file argument",
+        action="store_true",
     )
     parser.add_argument(
         "-C",
@@ -1022,10 +1140,13 @@ def main():
         action="store_true",
     )
     parser.add_argument(
+        "--dump-cmd-file",
+        help="dump fuzzer commands to put in file for --cmd-file)",
+        action="store_true",
+    )
+    parser.add_argument(
         "-v", "--verbose", help="print more messages", action="store_true"
     )
-    # TODO:
-    # -c cmplog binary
 
     if len(sys.argv) < 2:
         parser.print_help()
@@ -1033,14 +1154,15 @@ def main():
 
     args = parser.parse_args()
 
-    t_len = len(args.program)
-    if t_len < 1 or (args.program[0] == "--" and t_len < 2):
-        sys.exit(
-            "Error: you didn't specify PROGRAM you want to run. See examples: -h/--help"
-        )
+    if args.cmd_file is None:
+        t_len = len(args.program)
+        if t_len < 1 or (args.program[0] == "--" and t_len < 2):
+            sys.exit(
+                "Error: you didn't specify PROGRAM you want to run. See examples: -h/--help"
+            )
 
-    if args.program[0] == "--":
-        del args.program[0]
+        if args.program[0] == "--":
+            del args.program[0]
 
     if args.no_paths_stop and args.no_paths_stop < 1:
         sys.exit(
@@ -1053,6 +1175,19 @@ def main():
             "Error: bad value used for --minimal-job-duration. You should specify number of seconds "
             "(e.g. --minimal-job-duration 3600)"
         )
+
+    if args.cmd_file:
+        if args.builds:
+            sys.exit("Error: options --builds and --cmd-file are not compatible")
+
+        if args.dump_cmd_file:
+            sys.exit("Error: options --cmd-file and --dump-cmd-file are not compatible")
+
+        if args.output_dir is None:
+            sys.exit("Error: output dir must be specified for use with --cmd-file")
+
+    if args.output_dir is None:
+        args.output_dir = "./out"
 
     retcode = 7
     fuzzman = FuzzManager(args)
