@@ -1,22 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
-<script type = "text/JavaScript">
+<script type="text/JavaScript">
 	function autorefresh(d) { setTimeout("location.reload(true)", d); }
 </script>
-<body onload = "JavaScript:autorefresh(5000);">
-<div>
-	<h1>Fuzzer stats</h1>
-	<p>as of {{ common_stats.curtime_fmt }}</p>
 
-	<h2>Common stats:</h2>
-	<h5>Execs: {{ common_stats.execs }}</h5>
-	<h5>{{ common_stats.paths_info_fmt }}</h5>
-	<h5>{{ common_stats.hangs_info_fmt }}</h5>
-	<h5>{{ common_stats.crashes_info_fmt }}</h5>
+<body onload="JavaScript:autorefresh(5000);">
+	<div>
+		<h1>Fuzzer stats</h1>
+		<p>as of {{ common_stats.curtime_fmt }}</p>
 
-	<h2>Per-fuzzer stats:</h2>
-	{% for fuzzer in fuzzer_stats %}
-	<pre>
+		<h2>Common stats:</h2>
+		<h5>Execs: {{ common_stats.execs }}</h5>
+		<h5>{{ common_stats.paths_info_fmt }}</h5>
+		<h5>{{ common_stats.hangs_info_fmt }}</h5>
+		<h5>{{ common_stats.crashes_info_fmt }}</h5>
+
+		<h2>Per-fuzzer stats:</h2>
+		{% for fuzzer in fuzzer_stats %}
+		<pre>
 <b>Fuzzer #{{ loop.index }}/{{ loop.length }}: {{ fuzzer.command_line }}</b>
 Last update: {{ fuzzer.last_update }}
 
@@ -28,7 +29,7 @@ Crashes: {{ fuzzer.unique_crashes }}
 Stability: {{ fuzzer.stability }}
 Working mode: {{ fuzzer.target_mode }}
 	</pre>
-	{% endfor %}
-</div>
+		{% endfor %}
+	</div>
 </body>
 {% endblock %}
