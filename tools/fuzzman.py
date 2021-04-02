@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 # file    :  fuzzman.py
 # repo    :  https://github.com/fuzzah/fuzzaide
@@ -6,19 +6,66 @@
 # license :  MIT
 # check repository for more information
 
+from __future__ import print_function
+
 import os
 import sys
 import glob
 import shlex
 import shutil
 import signal
-import argparse
-from time import sleep
+from time import sleep, time
 from pprint import pprint
-from datetime import datetime
 from collections import deque
+from multiprocessing import cpu_count
 from threading import Thread, Lock, Event
-from subprocess import Popen, PIPE, TimeoutExpired, SubprocessError
+from subprocess import Popen, PIPE
+
+
+# python2 compatibility
+try:
+    from subprocess import TimeoutExpired, SubprocessError
+except:
+    TimeoutExpired = Exception
+    SubprocessError = Exception
+
+try:
+    import argparse
+except:
+    sys.exit("Please install argparse")
+
+try:
+    from shutil import which
+except:
+    def _access_check(fn, mode):
+        return os.path.exists(fn) and os.access(fn, mode) and not os.path.isdir(fn)
+
+    def which(cmd, mode=os.F_OK | os.X_OK):
+        """
+        Partial implementation as in Python3
+        """
+        if os.path.dirname(cmd):
+            if _access_check(cmd, mode):
+                return cmd
+            return None
+
+        path = os.environ.get("PATH", None)
+        if path is None:
+            return None
+        
+        path = path.split(os.pathsep)
+        
+        seen = set()
+        for dir in path:
+            normdir = os.path.normcase(dir)
+            if normdir in seen:
+                continue
+            seen.add(normdir)
+            name = os.path.join(dir, cmd)
+            if _access_check(name, mode):
+                return name
+        return None
+
 
 # some terminal constants from AFL
 
@@ -206,7 +253,7 @@ class FuzzManager:
         self.lastshown = 0
         self.args = args
         self.waited_for_child = False
-        self.start_time = int(datetime.now().timestamp())
+        self.start_time = int(time())
         self.cores_specified = False
         self.num_from_file = 0
 
@@ -280,7 +327,7 @@ class FuzzManager:
                 params[i][1] = path
         elif all_bins:  # exact binaries specified (full or partial paths or in PATH)
             for i, (_, p, _, _) in enumerate(params):
-                if shutil.which(p) is None:
+                if which(p) is None:
                     sys.exit(
                         "Error in --builds argument: file %s not found so it cannot be tested"
                         % (p,)
@@ -409,7 +456,7 @@ class FuzzManager:
         if self.args.verbose:
             print(
                 "Using %d cores out of total %d available in OS"
-                % (used_cores, os.cpu_count())
+                % (used_cores, cpu_count())
             )
 
         return params
@@ -482,7 +529,7 @@ class FuzzManager:
         """
         if self.args.instances is None:
             self.cores_specified = False
-            self.args.instances = os.cpu_count()
+            self.args.instances = cpu_count()
         else:
             self.cores_specified = True
 
@@ -491,7 +538,7 @@ class FuzzManager:
         if args.instances < 1:
             args.instances = 1
 
-        if shutil.which(args.fuzzer_binary) is None:
+        if which(args.fuzzer_binary) is None:
             sys.exit(
                 "File %s not found so it cannot be used as fuzzer" % args.fuzzer_binary
             )
@@ -539,7 +586,7 @@ class FuzzManager:
                         verbose=args.verbose,
                     )
                 )
-            self.start_time = int(datetime.now().timestamp())
+            self.start_time = int(time())
             return
 
         complex_mode = args.builds is not None and len(args.builds) > 0
@@ -560,7 +607,7 @@ class FuzzManager:
             for name, path, num_cores in params:
                 used_builds.extend([[name, path]] * num_cores)
         else:
-            if shutil.which(args.program[0]) is None:
+            if which(args.program[0]) is None:
                 sys.exit("File %s not found so it cannot be tested" % args.program[0])
             used_builds = [[None, args.program[0]]] * args.instances
 
@@ -641,7 +688,7 @@ class FuzzManager:
         if args.dump_cmd_file:
             sys.exit(0)
 
-        self.start_time = int(datetime.now().timestamp())
+        self.start_time = int(time())
 
     def stop(self, grace_sig=signal.SIGINT):
         if len(self.procs) < 1:
@@ -686,13 +733,15 @@ class FuzzManager:
             return
         elif len(self.procs) == 1:
             self.lastshown = 0
+        
+        outbuf = getattr(outfile, 'buffer', outfile)
 
         # helper for drawing workaround on linux with fancy boxes mode
         mqj = b"mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj"
 
         instance = self.procs[self.lastshown]
         if instance.proc.poll() is None:  # process is still running
-            outfile.buffer.write(CURSOR_HIDE)
+            outbuf.write(CURSOR_HIDE)
             if dump:
                 num_dumps = 1
             else:
@@ -704,14 +753,14 @@ class FuzzManager:
                     data[0] = data[0].replace(mqj, b"")
 
                 for line in data:
-                    outfile.buffer.write(line)
+                    outbuf.write(line)
 
                 if not self.args.no_drawing_workaround and len(data) > 0:
-                    outfile.buffer.write(SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1)
+                    outbuf.write(SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1)
 
                 if not dump:
                     sleep(0.05)
-            outfile.buffer.write(CURSOR_SHOW)
+            outbuf.write(CURSOR_SHOW)
         else:  # process is not running
             if not self.waited_for_child:
                 try:
@@ -723,11 +772,11 @@ class FuzzManager:
 
             data = instance.get_output(29)
             for line in data:
-                outfile.buffer.write(line)
+                outbuf.write(line)
             if not dump:
                 sleep(5.0)
 
-        sys.stdout.buffer.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
+        outbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
 
         if len(self.procs) > 0:
             self.lastshown += 1
@@ -735,12 +784,13 @@ class FuzzManager:
 
     def dump_status_screens(self, outfile=sys.stdout):
         self.lastshown = 0
+        outbuf = getattr(outfile, 'buffer', outfile)
         for _ in self.procs:
-            # outfile.buffer.write(TERM_CLEAR)
-            outfile.buffer.write(b"\n" * 40)
+            # outbuf.write(TERM_CLEAR)
+            outbuf.write(b"\n" * 40)
             self.display_next_status_screen(outfile=outfile, dump=True)
 
-        outfile.buffer.write(b"\n\n")
+        outbuf.write(b"\n\n")
 
     def get_fuzzer_stats(self, output_dir, idx, instance):
         """
@@ -900,7 +950,7 @@ class FuzzManager:
             )
 
         print("\nStats of this fuzzing job:")
-        job_duration = int(datetime.now().timestamp()) - self.start_time
+        job_duration = int(time()) - self.start_time
         print("Duration: %s" % (self.format_seconds(job_duration),))
 
         if newest_path_stamp == 0:
@@ -910,11 +960,11 @@ class FuzzManager:
 
         e = float(sum_execs)
         c = ""
-        if e >= 1_000_000_000:
-            e /= 1_000_000_000
+        if e >= 1000000000:
+            e /= 1000000000
             c = "B"
-        elif e >= 1_000_000:
-            e /= 1_000_000
+        elif e >= 1000000:
+            e /= 1000000
             c = "M"
         elif e >= 1000:
             e /= 1000
@@ -928,7 +978,7 @@ class FuzzManager:
         else:
             print("   Execs: %.0f" % (e,))
 
-        now = int(datetime.now().timestamp())
+        now = int(time())
 
         newest_path_delta = now - newest_path_stamp
         newest_path_fmt = self.format_seconds(newest_path_delta)
@@ -1049,7 +1099,7 @@ def main():
         "-n",
         "--instances",
         help="number of fuzzer instances to start (default: cpu count {%d})"
-        % os.cpu_count(),
+        % cpu_count(),
         default=None,
         type=int,
     )
@@ -1192,8 +1242,10 @@ def main():
     retcode = 7
     fuzzman = FuzzManager(args)
 
+    stdoutbuf = getattr(sys.stdout, 'buffer', sys.stdout)
+
     def handler(_signo, _stack_frame):
-        sys.stdout.buffer.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
+        stdoutbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
         print()
         fuzzman.stop()
         sys.exit(0)
@@ -1203,16 +1255,16 @@ def main():
     fuzzman.start()
 
     while True:
-        sys.stdout.buffer.write(TERM_CLEAR)
+        stdoutbuf.write(TERM_CLEAR)
         if not fuzzman.health_check():  # this check also prints alive status of workers
             retcode = 1
             break
 
         sleep(5.0)
-        sys.stdout.buffer.write(TERM_CLEAR)
+        stdoutbuf.write(TERM_CLEAR)
         fuzzman.display_next_status_screen()  # this displays fuzzer output in real time for ~5 seconds
 
-        sys.stdout.buffer.write(TERM_CLEAR)
+        stdoutbuf.write(TERM_CLEAR)
 
         # this function displays stats and decides if we need to stop current fuzzing job
         if fuzzman.job_status_check():
