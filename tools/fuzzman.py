@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # file    :  fuzzman.py
 # repo    :  https://github.com/fuzzah/fuzzaide
@@ -65,6 +66,15 @@ except:
             if _access_check(name, mode):
                 return name
         return None
+
+try:
+    "".isnumeric()
+except:
+    def isnumeric(s):
+        return unicode(s).isnumeric()
+else:
+    def isnumeric(s):
+        return s.isnumeric()
 
 
 # some terminal constants from AFL
@@ -290,7 +300,7 @@ class FuzzManager:
             if n == 1:
                 path = bi[0]
             elif n == 2:
-                if "%" in bi[1] or bi[1].isnumeric():
+                if "%" in bi[1] or isnumeric(bi[1]):
                     path = bi[0]
                     count, perc = self.extract_instance_count(bi[1])
                 else:
