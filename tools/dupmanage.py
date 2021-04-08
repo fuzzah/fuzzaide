@@ -201,6 +201,9 @@ def main():
         all_paths.append(args.output_dir)
 
     for path in args.paths:
+        if path.startswith("~"):
+            path = os.path.expanduser(path)
+        
         if "*" in path or "?" in path:
             all_paths.extend(glob.glob(path))
         else:
