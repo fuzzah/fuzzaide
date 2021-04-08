@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # file    :  dupmanage.py
 # repo    :  https://github.com/fuzzah/fuzzaide
@@ -6,14 +7,19 @@
 # license :  MIT
 # check repository for more information
 
+from __future__ import print_function
+
 import os
 import sys
 import glob
 import shutil
 import hashlib
-import argparse
 import itertools
 
+try:
+    import argparse
+except:
+    sys.exit("Please install argparse")
 
 def main():
     parser = argparse.ArgumentParser(
