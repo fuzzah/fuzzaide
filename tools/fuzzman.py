@@ -571,7 +571,8 @@ class FuzzManager:
 
         if len(glob.glob(os.path.join(args.input_dir, "*"))) < 1:
             path = os.path.join(args.input_dir, "1")
-            print("Creating simple input corpus: %s" % path)
+            if args.verbose:
+                print("Creating simple input corpus: %s" % path)
             try:
                 with open(path, "w") as f:
                     f.write("12345")
@@ -579,7 +580,7 @@ class FuzzManager:
                 sys.exit("Wasn't able to create input corpus")
 
         if args.cleanup and os.path.isdir(args.output_dir):
-            print("Removing directory '%s'" % args.output_dir)
+            print("Removing directory '%s'" % args.output_dir, file=sys.stderr)
             try:
                 shutil.rmtree(args.output_dir, ignore_errors=True)
             except shutil.Error:
