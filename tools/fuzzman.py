@@ -38,6 +38,7 @@ except:
 try:
     from shutil import which
 except:
+
     def _access_check(fn, mode):
         return os.path.exists(fn) and os.access(fn, mode) and not os.path.isdir(fn)
 
@@ -53,9 +54,9 @@ except:
         path = os.environ.get("PATH", None)
         if path is None:
             return None
-        
+
         path = path.split(os.pathsep)
-        
+
         seen = set()
         for dir in path:
             normdir = os.path.normcase(dir)
@@ -67,12 +68,17 @@ except:
                 return name
         return None
 
+
 try:
     "".isnumeric()
 except:
+
     def isnumeric(s):
         return unicode(s).isnumeric()
+
+
 else:
+
     def isnumeric(s):
         return s.isnumeric()
 
@@ -322,7 +328,9 @@ class FuzzManager:
         all_dirs = all(os.path.isdir(p) for _, p, _, _ in params)
         all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
 
-        pprint(params)
+        if args.verbose:
+            print("Params of --builds: ")
+            pprint(params)
 
         if (
             all_dirs
@@ -743,8 +751,8 @@ class FuzzManager:
             return
         elif len(self.procs) == 1:
             self.lastshown = 0
-        
-        outbuf = getattr(outfile, 'buffer', outfile)
+
+        outbuf = getattr(outfile, "buffer", outfile)
 
         # helper for drawing workaround on linux with fancy boxes mode
         mqj = b"mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj"
@@ -794,7 +802,7 @@ class FuzzManager:
 
     def dump_status_screens(self, outfile=sys.stdout):
         self.lastshown = 0
-        outbuf = getattr(outfile, 'buffer', outfile)
+        outbuf = getattr(outfile, "buffer", outfile)
         for _ in self.procs:
             # outbuf.write(TERM_CLEAR)
             outbuf.write(b"\n" * 40)
@@ -1252,7 +1260,7 @@ def main():
     retcode = 7
     fuzzman = FuzzManager(args)
 
-    stdoutbuf = getattr(sys.stdout, 'buffer', sys.stdout)
+    stdoutbuf = getattr(sys.stdout, "buffer", sys.stdout)
 
     def handler(_signo, _stack_frame):
         stdoutbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
