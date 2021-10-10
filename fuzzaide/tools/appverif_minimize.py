@@ -203,23 +203,6 @@ def main():
         if len(casefnames) < 1:
             sys.exit("No files in given directory %s!" % (args.cases_in,))
 
-        ## unused (yet?) code
-        # def case2logname(casename, lognames):
-        #     caseid = get_case_id(casename)
-
-        #     if caseid is None:
-        #         return None
-
-        #     for logname in lognames:
-        #         logid = get_log_id(logname)
-        #         if logid is None:
-        #             continue
-
-        #         if logid == caseid:
-        #             return logname
-
-        #     return None
-
         def log2casename(logname, casenames):
             logid = get_log_id(logname)
 
@@ -238,10 +221,6 @@ def main():
 
     else:
         casefnames = []
-
-        # unused (yet?) code
-        # def case2logname(_casename,_lognames):
-        #     return None
 
         def log2casename(_logname, _casenames):
             return None
