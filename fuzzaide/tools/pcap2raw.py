@@ -1,10 +1,13 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # file    :  pcap2raw.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
+
+from __future__ import print_function
 
 import os
 import sys

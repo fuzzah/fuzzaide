@@ -159,11 +159,11 @@ class StatsLoader(Thread):
 
         e = float(sum_execs)
         c = ""
-        if e >= 1_000_000_000:
-            e /= 1_000_000_000
+        if e >= 1000000000:
+            e /= 1000000000
             c = "B"
-        elif e >= 1_000_000:
-            e /= 1_000_000
+        elif e >= 1000000:
+            e /= 1000000
             c = "M"
         elif e >= 1000:
             e /= 1000

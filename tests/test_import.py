@@ -5,7 +5,7 @@ import glob
 import pytest
 
 
-# imp module is deprecated in python3
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_tools_importable():
     """
@@ -15,9 +15,13 @@ def test_tools_importable():
     import imp
 
     from fuzzaide import tools
+    from fuzzaide.tools import fuzz_webview
 
-    scripts_dir = os.path.dirname(tools.__file__)
-    for script_path in glob.glob(os.path.join(scripts_dir, "*.py")):
-        fname = os.path.basename(script_path)
-        if not fname.startswith("__"):
-            imp.load_source(fname, script_path)
+    modules = (tools, fuzz_webview)
+
+    script_dirs = map(lambda m: os.path.dirname(m.__file__), modules)
+    for script_dir in script_dirs:
+        for script_path in glob.glob(os.path.join(script_dir, "*.py")):
+            fname = os.path.basename(script_path)
+            if not fname.startswith("__"):
+                imp.load_source(fname, script_path)

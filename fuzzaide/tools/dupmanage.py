@@ -21,6 +21,7 @@ try:
 except:
     sys.exit("Please install argparse")
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="%(prog)s - search and manage files with duplicate contents",
@@ -203,7 +204,7 @@ def main():
     for path in args.paths:
         if path.startswith("~"):
             path = os.path.expanduser(path)
-        
+
         if "*" in path or "?" in path:
             all_paths.extend(glob.glob(path))
         else:
