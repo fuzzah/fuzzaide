@@ -1,0 +1,5 @@
+black
+build
+pylint
+pytest
+tox
