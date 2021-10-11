@@ -2,4 +2,5 @@ black
 build
 pylint
 pytest
+rope
 tox

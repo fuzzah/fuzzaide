@@ -17,251 +17,13 @@ import shutil
 import signal
 from time import sleep, time
 from pprint import pprint
-from collections import deque
+
 from multiprocessing import cpu_count
-from threading import Thread, Lock, Event
-from subprocess import Popen, PIPE
 
-
-# python2 compatibility
-try:
-    from subprocess import TimeoutExpired, SubprocessError
-except:
-    TimeoutExpired = Exception
-    SubprocessError = Exception
-
-try:
-    import argparse
-except:
-    sys.exit("Please install argparse")
-
-try:
-    from shutil import which
-except:
-
-    def _access_check(fn, mode):
-        return os.path.exists(fn) and os.access(fn, mode) and not os.path.isdir(fn)
-
-    def which(cmd, mode=os.F_OK | os.X_OK):
-        """
-        Partial implementation as in Python3
-        """
-        if os.path.dirname(cmd):
-            if _access_check(cmd, mode):
-                return cmd
-            return None
-
-        path = os.environ.get("PATH", None)
-        if path is None:
-            return None
-
-        path = path.split(os.pathsep)
-
-        seen = set()
-        for dir in path:
-            normdir = os.path.normcase(dir)
-            if normdir in seen:
-                continue
-            seen.add(normdir)
-            name = os.path.join(dir, cmd)
-            if _access_check(name, mode):
-                return name
-        return None
-
-
-try:
-    "".isnumeric()
-except:
-
-    def isnumeric(s):
-        return unicode(s).isnumeric()
-
-
-else:
-
-    def isnumeric(s):
-        return s.isnumeric()
-
-
-# some terminal constants from AFL
-
-cGRA = b"\x1b[1;90m"
-cRST = b"\x1b[0m"
-
-TERM_CLEAR = b"\x1b[H\x1b[2J"
-cEOL = b"\x1b[0K"
-CURSOR_HIDE = b"\x1b[?25l"
-CURSOR_SHOW = b"\x1b[?25h"
-
-SET_G1 = b"\x1b)0"  # /* Set G1 for box drawing    */
-RESET_G1 = b"\x1b)B"  # /* Reset G1 to ASCII         */
-bSTART = b"\x0e"  # /* Enter G1 drawing mode     */
-bSTOP = b"\x0f"  # /* Leave G1 drawing mode     */
-
-bSTG = bSTART + cGRA
-
-
-class StreamingProcess:
-    def __init__(self, name="", groupname="", cmd=None, env=None, verbose=False):
-        if cmd is None:
-            raise SyntaxError("Can't create SteamingProcess without 'cmd' parameter")
-
-        self.name = name
-        self.groupname = groupname
-        self.cmd = cmd
-        self.env = env
-        self.verbose = verbose
-        self.proc = None
-        self.comm_thread = None
-
-        self.buffer = deque(maxlen=100)
-        self.lock = Lock()
-
-        self._stop = Event()
-        self.waited_for_child = False
-
-        self._restarts = 0
-        self.total_restarts = 0
-
-        self.start()
-
-    def __communicate_thread(self):
-        while True:
-            data = self.proc.stdout.readline()
-            if data is None:
-                break
-
-            if self._stop.is_set():
-                break  # leave communication thread
-
-            self.lock.acquire()
-            self.buffer.append(data)
-            self.lock.release()
-
-    def start(self, resume=False, env={}):
-        cmd = self.cmd
-
-        if cmd is None:
-            raise RuntimeError(
-                "Can't call SteamingProcess.start without 'cmd' parameter"
-            )
-
-        args = shlex.split(cmd)
-        self.waited_for_child = False
-
-        if self.proc is None or self.proc.poll() is not None:
-            self.env.update(env)
-
-            if resume:
-                self.env.update({"AFL_AUTORESUME": "1"})
-                try:
-                    path_idx = args.index("-i") + 1
-                except ValueError:
-                    sys.exit(
-                        "Failed to restart instance '%s': no '-i' option passed"
-                        % (cmd,)
-                    )
-                args[path_idx] = "-"
-
-            try:
-                self.proc = Popen(args, shell=False, stdout=PIPE, env=self.env)
-            except SubprocessError:
-                print(
-                    "Wasn't able to start process with command '%s'" % (cmd,),
-                    file=sys.stderr,
-                )
-                return False
-
-        if self.comm_thread is None:
-            self.comm_thread = Thread(target=self.__communicate_thread)
-            self.comm_thread.start()
-            if not self.comm_thread.is_alive():
-                print(
-                    "Wasn't able to start communication thread. Stopping process",
-                    file=sys.stderr,
-                )
-                self.stop()
-                return False
-        return True
-
-    def get_output(self, num_lines=100):
-        if num_lines > 100:
-            num_lines = 100
-        self.lock.acquire()
-        lines = list(self.buffer)[-num_lines:] if len(self.buffer) > 0 else list()
-        self.lock.release()
-        return lines
-
-    def stop(self, force=False, grace_sig=signal.SIGINT):
-
-        if self.comm_thread is not None and self.comm_thread.is_alive():
-            self._stop.set()
-            self.comm_thread.join(3.0)
-            if self.comm_thread.is_alive():
-                print(
-                    "\tCommunication thread is still running.. Thread: ",
-                    self.comm_thread,
-                )
-
-        if self.proc.poll() is None:
-            if force:
-                print(
-                    "Killing instance '%s' (pid %d)" % (self.cmd, self.proc.pid),
-                    file=sys.stderr,
-                )
-                self.proc.send_signal(signal.SIGKILL)
-                self.proc.wait()
-            else:
-                # print("Gracefully stopping instance '%s' (pid %d)" % (self.cmd,self.proc.pid))
-                self.proc.send_signal(grace_sig)
-                try:
-                    self.proc.wait(3.0)
-                except TimeoutExpired:
-                    pass
-
-    def health_check(self):
-        if self.cmd is None:
-            print('[!] Instance "unknown": never started', file=sys.stderr)
-            return False
-
-        quality = 2
-        print("[i] Instance '%s' status:" % self.cmd)
-        if self.proc and self.proc.poll() is None:
-            print("\tRunning. Process Id: %d" % self.proc.pid)
-            self._restarts -= 5  # failed attempts to restart are cooling down over time
-            if self._restarts < 0:
-                self._restarts = 0
-        else:
-            self._restarts += 10
-            if self._restarts > 29:  # three failed restarts in a row -> give up
-                print("[!]\tNot running, gave up on restarting", file=sys.stderr)
-                quality = 0
-            else:
-                print("[!]\tNot running, restarting.. ", file=sys.stderr)
-                self.total_restarts += 1
-                quality -= 1
-                self.start(resume=True)
-
-        if self.comm_thread and self.comm_thread.is_alive():
-            if self.verbose:
-                print("\tCommunication thread is running. Thread:", self.comm_thread)
-        else:
-            print(
-                "[!]\tCommunication thread is not running. Realtime output not available",
-                file=sys.stderr,
-            )
-            quality -= 1
-
-        if quality < 1:
-            print("[!]\tInstance is not working", file=sys.stderr)
-        elif self.verbose:
-            if quality > 1:
-                print("\tInstance seems to be working normally")
-            elif quality == 1:
-                print("\tInstance working without realtime output report")
-
-        return quality > 0
-
+from fuzzaide.common import isnumeric, which
+from .args import get_launch_args
+from .running_process import RunningProcess, TimeoutExpired
+from .const import *
 
 class FuzzManager:
     def __init__(self, args):
@@ -563,7 +325,7 @@ class FuzzManager:
 
         if not os.path.exists(args.input_dir):
             try:
-                os.makedirs(args.input_dir, exist_ok=True)
+                os.makedirs(args.input_dir)
             except OSError:
                 sys.exit("Can't create input directory %s" % args.input_dir)
         elif not os.path.isdir(args.input_dir):
@@ -597,7 +359,7 @@ class FuzzManager:
 
                 print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
                 self.procs.append(
-                    StreamingProcess(
+                    RunningProcess(
                         name=worker_name,
                         groupname="custom",
                         cmd=cmd,
@@ -695,7 +457,7 @@ class FuzzManager:
             else:
                 print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
                 self.procs.append(
-                    StreamingProcess(
+                    RunningProcess(
                         name=worker_name,
                         groupname=groupname,
                         cmd=cmd,
@@ -768,6 +530,12 @@ class FuzzManager:
 
             for _ in range(num_dumps):
                 data = instance.get_output(24)
+
+                # one of the dirtiest hacks so far: make double terminal clean in python2
+                # .. by sending first half of ANSI sequence "\x1b[H\x1b[2J" twice
+                if sys.version_info[0] == 2:
+                    data = [l.replace(TERM_CLEAR_PY2_REPLACE, TERM_CLEAR) for l in data]
+                
                 if not self.args.no_drawing_workaround and len(data) > 0:
                     data[0] = data[0].replace(mqj, b"")
 
@@ -1035,228 +803,9 @@ class FuzzManager:
         return False
 
 
-class FuzzmanArgumentParser(argparse.ArgumentParser):
-    def __init__(self, *args, **kwargs):
-        argparse.ArgumentParser.__init__(self, *args, **kwargs)
-
-    def print_example(self, action="", cmd=""):
-        print(action + ": \n\t" + sys.argv[0] + " " + cmd)
-
-    def print_help(self, examples=True):
-        argparse.ArgumentParser.print_help(self)
-        if examples:
-            print()
-            print("Invocation examples:")
-            examples = [
-                ["Fuzz ./myapp using all CPU cores until stopped by Ctrl+C", "./myapp"],
-                [
-                    "Set memory limit of 10 kilobytes, cleanup output directory",
-                    "-m 10K -C -- ./myapp",
-                ],
-                [
-                    "Pass additional agruments to fuzzer",
-                    '--more-args "-p fast" ./myapp @@',
-                ],
-                [
-                    "Run 4 instances and specify in/out directories",
-                    "-n 4 -i ../inputs/for_myapp -o ../outputs/myapp ./myapp @@",
-                ],
-                [
-                    "Specify non-default fuzzer",
-                    "--fuzzer-binary ~/git/fuzzer/obliterator -- ./myapp",
-                ],
-                [
-                    "Specify non-default fuzzer in path",
-                    "--fuzzer-binary py-afl-fuzz ./myapp",
-                ],
-                [
-                    "Stop if no new paths have been discovered across all fuzzers "
-                    "in the last 1 hour and 5 minutes (which is 3900 seconds)",
-                    "--no-paths-stop 3900 -- ./myapp",
-                ],
-                [
-                    "Same as above but make sure that fuzzing job runs for at least 8 hours "
-                    "(which is 28800 seconds)",
-                    "--minimal-job-duration 28800 --no-paths-stop 3900 ./myapp",
-                ],
-                [
-                    "Simultaneously fuzz multiple builds of the same application "
-                    "(app in PATH: 2 cores, app_asan: 1 core, app_laf: all the remaining cores)",
-                    "--builds app:2 /full_path/app_asan:1 ../relative_path/app_laf -- ./app",
-                ],
-                [
-                    r"Fuzz multiple builds in different dirs "
-                    r"(~/dir_asan/test: 1 core, ~/dir_basic/test: 30% of the remaining cores, ~/dir_laf/test: all the remaining cores)",
-                    r"--builds ~/dir_basic:30% ~/dir_asan/:1 ~/dir_laf -- ./test @@",
-                ],
-                [
-                    r"Fuzz multiple builds giving them some build/group names (./app_laf will use 100%-50%-10% = 40% of available cores)",
-                    r"--builds basic:./app:10% something:./app2:50% addr:./app_asan:1 UB:./app_ubsan:1 paths:./app_laf -- ./app @@",
-                ],
-                [
-                    "Run fuzzer commands from file job.fzm instead of commands generated by fuzzman "
-                    "(format of each line is name:command, names should match fuzzer dirs in output dir)",
-                    "-o out/ --cmd-file job.fzm",
-                ],
-            ]
-            for action, cmd in examples:
-                self.print_example(action, cmd)
-
 
 def main():
-    parser = FuzzmanArgumentParser(
-        description="%(prog)s - your humble assistant to automate and manage fuzzing tasks",
-        epilog="developed and tested by fuzzah for using with AFL++",
-    )
-    parser.add_argument(
-        "program",
-        nargs=argparse.REMAINDER,
-        metavar="...",
-        help="program with its arguments (example: ./myapp --file @@)",
-    )
-    parser.add_argument(
-        "-n",
-        "--instances",
-        help="number of fuzzer instances to start (default: cpu count {%d})"
-        % cpu_count(),
-        default=None,
-        type=int,
-    )
-    parser.add_argument(
-        "-i", "--input-dir", help="input directory (default: ./in)", default="./in"
-    )
-    parser.add_argument(
-        "-o", "--output-dir", help="output directory (default: ./out)", default=None
-    )
-    parser.add_argument(
-        "-x",
-        "--dict",
-        help="dictionary for main instance (default: none)",
-        default=None,
-    )
-    parser.add_argument(
-        "-m",
-        "--memory-limit",
-        help="assign memory limit to each fuzzer instance (default: none)",
-        default="none",
-    )
-    parser.add_argument(
-        "--builds",
-        nargs="+",
-        metavar="[NAME:]<dir/bin path>[:N[%]]",
-        help="specify multiple binaries for fuzzing and number or percent of cores to use"
-        "(default: fuzz only one binary provided as the last argument)",
-        default=None,
-    )
-    parser.add_argument(
-        "--cmd-file",
-        help="read custom fuzzer commands from file (incompatible with --builds)",
-        default=None,
-    )
-    parser.add_argument(
-        "--cmd-file-allow-duplicates",
-        help="allow duplicate commands (but not names!) in --cmd-file argument",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-C",
-        "--cleanup",
-        help="delete output directory before starting (default: don't delete)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-P",
-        "--no-power-schedules",
-        help="don't pass -p option to fuzzer (default: pass -p exploit for main instance, pass -p "
-        "seek for secondary instances)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-W",
-        "--no-drawing-workaround",
-        help="disable linux G1 drawing workaround (default: workaround enabled)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--more-args",
-        metavar="ARGS",
-        help="additional arguments for fuzzer, added last (default: no arguments)",
-        default=None,
-    )
-    parser.add_argument(
-        "--fuzzer-binary",
-        metavar="PATH",
-        help="name or full path to fuzzer binary (default: afl-fuzz)",
-        default="afl-fuzz",
-    )
-    parser.add_argument(
-        "--no-paths-stop",
-        metavar="N",
-        help="stop fuzzing job if no new paths have been found in the last N seconds (default: don't stop)",
-        default=None,
-        type=int,
-    )
-    parser.add_argument(
-        "--minimal-job-duration",
-        metavar="N",
-        help="don't stop fuzzing job earlier than N seconds from start (default: stop if --no-paths-stop specified)",
-        default=None,
-        type=int,
-    )
-    parser.add_argument(
-        "--dump-screens",
-        help="dump all status screens on job stop (default: don't dump)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--dump-cmd-file",
-        help="dump fuzzer commands to put in file for --cmd-file)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-v", "--verbose", help="print more messages", action="store_true"
-    )
-
-    if len(sys.argv) < 2:
-        parser.print_help()
-        return 0
-
-    args = parser.parse_args()
-
-    if args.cmd_file is None:
-        t_len = len(args.program)
-        if t_len < 1 or (args.program[0] == "--" and t_len < 2):
-            sys.exit(
-                "Error: you didn't specify PROGRAM you want to run. See examples: -h/--help"
-            )
-
-        if args.program[0] == "--":
-            del args.program[0]
-
-    if args.no_paths_stop and args.no_paths_stop < 1:
-        sys.exit(
-            "Error: bad value used for --no-paths-stop. You should specify number of seconds "
-            "(e.g. --no-paths-stop 600)"
-        )
-
-    if args.minimal_job_duration and args.minimal_job_duration < 1:
-        sys.exit(
-            "Error: bad value used for --minimal-job-duration. You should specify number of seconds "
-            "(e.g. --minimal-job-duration 3600)"
-        )
-
-    if args.cmd_file:
-        if args.builds:
-            sys.exit("Error: options --builds and --cmd-file are not compatible")
-
-        if args.dump_cmd_file:
-            sys.exit("Error: options --cmd-file and --dump-cmd-file are not compatible")
-
-        if args.output_dir is None:
-            sys.exit("Error: output dir must be specified for use with --cmd-file")
-
-    if args.output_dir is None:
-        args.output_dir = "./out"
+    args = get_launch_args()
 
     retcode = 7
     fuzzman = FuzzManager(args)

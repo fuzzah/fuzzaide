@@ -1,0 +1,5 @@
+fuzzable32
+fuzzable64
+in/
+out/
+*.core*
