@@ -23,15 +23,15 @@ except:
     SubprocessError = Exception
 
 
-class RunningProcess:
+class RunningAFLProcess:
     """
-    Long-running child process with interactive stdout updates.
+    Long-running child process of AFL-like fuzzer with interactive stdout updates.
     This class autorestarts child process up to three restart failures in a row
     """
 
     def __init__(self, name="", groupname="", cmd=None, env=None, verbose=False):
         if cmd is None:
-            raise SyntaxError("Can't create RunningProcess without 'cmd' parameter")
+            raise SyntaxError("Can't create RunningAFLProcess without 'cmd' parameter")
 
         self.name = name
         self.groupname = groupname
@@ -70,7 +70,7 @@ class RunningProcess:
 
         if cmd is None:
             raise RuntimeError(
-                "Can't call SteamingProcess.start without 'cmd' parameter"
+                "Can't call RunningAFLProcess.start without 'cmd' parameter"
             )
 
         args = shlex.split(cmd)
@@ -139,7 +139,6 @@ class RunningProcess:
                 self.proc.send_signal(signal.SIGKILL)
                 self.proc.wait()
             else:
-                # print("Gracefully stopping instance '%s' (pid %d)" % (self.cmd,self.proc.pid))
                 self.proc.send_signal(grace_sig)
                 try:
                     self.proc.wait(3.0)
@@ -147,10 +146,6 @@ class RunningProcess:
                     pass
 
     def health_check(self):
-        if self.cmd is None:
-            print('[!] Instance "unknown": never started', file=sys.stderr)
-            return False
-
         quality = 2
         print("[i] Instance '%s' status:" % self.cmd)
         if self.proc and self.proc.poll() is None:

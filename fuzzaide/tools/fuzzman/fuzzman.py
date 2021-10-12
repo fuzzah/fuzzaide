@@ -22,8 +22,9 @@ from multiprocessing import cpu_count
 
 from fuzzaide.common import isnumeric, which
 from .args import get_launch_args
-from .running_process import RunningProcess, TimeoutExpired
+from .running_process import RunningAFLProcess, TimeoutExpired
 from .const import *
+
 
 class FuzzManager:
     def __init__(self, args):
@@ -35,7 +36,8 @@ class FuzzManager:
         self.cores_specified = False
         self.num_from_file = 0
 
-    def extract_instance_count(self, s):
+    @staticmethod
+    def extract_instance_count(s):
         """
         Gets number of instances from strings like "5", "10%" or "66.6%"
         """
@@ -46,7 +48,7 @@ class FuzzManager:
                 count = float(s.split("%", 1)[0])
             else:
                 count = int(s)
-        except:
+        except ValueError:
             sys.exit(
                 "Error in --builds argument: '%s' is not convertible to number of instances (examples: 3, 66.6%%)"
                 % (s,)
@@ -82,21 +84,25 @@ class FuzzManager:
                 sys.exit(
                     "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
                 )
-            if path is not None:
-                if path.startswith("~"):
-                    path = os.path.expanduser(path)
-                params.append([name, path, count, perc])
-
-        all_dirs = all(os.path.isdir(p) for _, p, _, _ in params)
-        all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
+            
+            if path.startswith("~"):
+                path = os.path.expanduser(path)
+            params.append([name, path, count, perc])
 
         if args.verbose:
             print("Params of --builds: ")
             pprint(params)
 
-        if (
-            all_dirs
-        ):  # build directories provided -> each one should contain binary with same app name
+        all_dirs = all(os.path.isdir(p) for _, p, _, _ in params)
+        all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
+
+        if not all_dirs and not all_bins:
+            sys.exit(
+                "Error: --builds should point EITHER to directories OR to binaries"
+            )
+
+        # build directories provided -> each one should contain binary with same app name
+        if all_dirs:
             for i, (_, p, _, _) in enumerate(params):
                 path = os.path.normpath(os.path.join(p, args.program[0]))
                 if not os.path.isfile(path):
@@ -105,17 +111,16 @@ class FuzzManager:
                         % (p, args.program[0], path)
                     )
                 params[i][1] = path
-        elif all_bins:  # exact binaries specified (full or partial paths or in PATH)
-            for i, (_, p, _, _) in enumerate(params):
-                if which(p) is None:
-                    sys.exit(
-                        "Error in --builds argument: file %s not found so it cannot be tested"
-                        % (p,)
-                    )
-        else:
-            sys.exit(
-                "Error: --builds should point EITHER to directories OR to binaries"
-            )
+            
+            return params
+
+        # exact binaries specified (full or partial paths or in PATH)
+        for i, (_, p, _, _) in enumerate(params):
+            if which(p) is None:
+                sys.exit(
+                    "Error in --builds argument: file %s not found so it cannot be tested"
+                    % (p,)
+                )
 
         return params
 
@@ -359,7 +364,7 @@ class FuzzManager:
 
                 print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
                 self.procs.append(
-                    RunningProcess(
+                    RunningAFLProcess(
                         name=worker_name,
                         groupname="custom",
                         cmd=cmd,
@@ -457,7 +462,7 @@ class FuzzManager:
             else:
                 print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
                 self.procs.append(
-                    RunningProcess(
+                    RunningAFLProcess(
                         name=worker_name,
                         groupname=groupname,
                         cmd=cmd,
@@ -499,11 +504,8 @@ class FuzzManager:
         if len(self.procs) < 1:
             return False
 
-        num_ok = 0
         print("Checking status of workers")
-        for proc in self.procs:
-            if proc.health_check():
-                num_ok += 1
+        num_ok = sum(1 for proc in self.procs if proc.health_check())
 
         print("%d/%d workers report OK status" % (num_ok, len(self.procs)))
         return num_ok > 0
@@ -535,7 +537,7 @@ class FuzzManager:
                 # .. by sending first half of ANSI sequence "\x1b[H\x1b[2J" twice
                 if sys.version_info[0] == 2:
                     data = [l.replace(TERM_CLEAR_PY2_REPLACE, TERM_CLEAR) for l in data]
-                
+
                 if not self.args.no_drawing_workaround and len(data) > 0:
                     data[0] = data[0].replace(mqj, b"")
 
@@ -553,7 +555,7 @@ class FuzzManager:
                 try:
                     instance.proc.wait(3.0)  # wait to prevent zombie-processes
                 except TimeoutExpired:
-                    pass  # timeout waiting: process hung?
+                    pass  # timeout waiting: hanged process?
                 else:
                     self.waited_for_child = True
 
@@ -573,7 +575,6 @@ class FuzzManager:
         self.lastshown = 0
         outbuf = getattr(outfile, "buffer", outfile)
         for _ in self.procs:
-            # outbuf.write(TERM_CLEAR)
             outbuf.write(b"\n" * 40)
             self.display_next_status_screen(outfile=outfile, dump=True)
 
@@ -801,7 +802,6 @@ class FuzzManager:
             return True
 
         return False
-
 
 
 def main():
