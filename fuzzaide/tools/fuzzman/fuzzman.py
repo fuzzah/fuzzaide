@@ -27,9 +27,23 @@ from .const import *
 
 
 class FuzzManager:
+    """
+    Literally GOD-class that needs a ton of rework :(
+    Responsible for:
+        1. Generating fuzzer commands for different run modes (normal, --builds, --cmd-file)
+        2. Running commands
+        3. Monitoring and restarting of commands
+        4. Statistics counting
+        5. Desicion making on termination of fuzzing job
+    
+    Limitations:
+        1. Only AFL, AFL++ supported
+        2. Only interactive output mode supported
+    """
+
     def __init__(self, args):
         self.procs = list()
-        self.lastshown = 0
+        self.last_shown_screen_idx = 0
         self.args = args
         self.waited_for_child = False
         self.start_time = int(time())
@@ -37,54 +51,59 @@ class FuzzManager:
         self.num_from_file = 0
 
     @staticmethod
-    def extract_instance_count(s):
+    def extract_instance_count(amount):
         """
         Gets number of instances from strings like "5", "10%" or "66.6%"
         """
+
         count = 0
-        perc = s.endswith("%")
+        perc = amount.endswith("%")
         try:
             if perc:
-                count = float(s.split("%", 1)[0])
+                count = float(amount.split("%", 1)[0])
             else:
-                count = int(s)
+                count = int(amount)
         except ValueError:
             sys.exit(
                 "Error in --builds argument: '%s' is not convertible to number of instances (examples: 3, 66.6%%)"
-                % (s,)
+                % (amount,)
             )
 
         return count, perc
 
     def extract_complex_mode_params(self):
+        """
+        Iterate over --builds arguments and extract group name, path, number/percent of cpu cores
+        """
+
         args = self.args
 
         params = []
-        for b in args.builds:
-            bi = b.split(":")  # 0:1:2 -> NAME:PATH:N[%]
-            n = len(bi)
+        for build_spec in args.builds:
+            bspec = build_spec.split(":")  # 0:1:2 -> NAME:PATH:N[%]
+            num_spec_parts = len(bspec)
             name = None
             path = None
             count = None
             perc = False
-            if n == 1:
-                path = bi[0]
-            elif n == 2:
-                if "%" in bi[1] or isnumeric(bi[1]):
-                    path = bi[0]
-                    count, perc = self.extract_instance_count(bi[1])
+            if num_spec_parts == 1:
+                path = bspec[0]
+            elif num_spec_parts == 2:
+                if "%" in bspec[1] or isnumeric(bspec[1]):
+                    path = bspec[0]
+                    count, perc = self.extract_instance_count(bspec[1])
                 else:
-                    name = bi[0]
-                    path = bi[1]
-            elif n == 3:
-                name = bi[0]
-                path = bi[1]
-                count, perc = self.extract_instance_count(bi[2])
+                    name = bspec[0]
+                    path = bspec[1]
+            elif num_spec_parts == 3:
+                name = bspec[0]
+                path = bspec[1]
+                count, perc = self.extract_instance_count(bspec[2])
             else:
                 sys.exit(
                     "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
                 )
-            
+
             if path.startswith("~"):
                 path = os.path.expanduser(path)
             params.append([name, path, count, perc])
@@ -103,23 +122,23 @@ class FuzzManager:
 
         # build directories provided -> each one should contain binary with same app name
         if all_dirs:
-            for i, (_, p, _, _) in enumerate(params):
-                path = os.path.normpath(os.path.join(p, args.program[0]))
+            for i, (_, dirpath, _, _) in enumerate(params):
+                path = os.path.normpath(os.path.join(dirpath, args.program[0]))
                 if not os.path.isfile(path):
                     sys.exit(
                         "Error in --builds argument: directory '%s' does not contain '%s' (path checked: '%s')"
-                        % (p, args.program[0], path)
+                        % (dirpath, args.program[0], path)
                     )
                 params[i][1] = path
-            
+
             return params
 
         # exact binaries specified (full or partial paths or in PATH)
-        for i, (_, p, _, _) in enumerate(params):
-            if which(p) is None:
+        for i, (_, binpath, _, _) in enumerate(params):
+            if which(binpath) is None:
                 sys.exit(
                     "Error in --builds argument: file %s not found so it cannot be tested"
-                    % (p,)
+                    % (binpath,)
                 )
 
         return params
@@ -130,11 +149,14 @@ class FuzzManager:
         and makes sure that each build is used at least once.
         params is a list of 4-item lists: name, path, count/percent, is_percent
         """
+
+        # sum percents as specified by user
         percsum = 0.0
         for _, _, count, is_perc in params:
             if count is not None and is_perc:
                 percsum += count
 
+        # normalize percents to 100 if required
         if percsum > 100.0:
             if self.args.verbose:
                 print(
@@ -146,24 +168,29 @@ class FuzzManager:
                     params[i][2] = count * 100.0 / percsum
             percsum = 100.0
 
+        # count builds without number or percent of cores specified
         count_none = sum(1 for _, _, count, _ in params if count is None)
 
         if count_none > 0:
+            # set percents for builds without cores specified
             for i, (_, _, count, _) in enumerate(params):
                 if count is None:
                     params[i][2] = (100.0 - percsum) / count_none
                     params[i][3] = True
 
-        count_exact = sum(count for _, _, count, is_perc in params if is_perc == False)
-        count_free = self.args.instances - count_exact
-        if count_free < 0 or (count_free == 0 and percsum > 0.0):
+        sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
+        number_of_free_cores = self.args.instances - sum_cores_exact
+        if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
             sys.exit(
                 "Error in --builds argument: not enough processor cores to fit desired configuration"
             )
 
         if percsum > 0.0:
             for i, (_, _, count, is_perc) in enumerate(params):
-                if is_perc and (count <= 0.0 or count_free * params[i][2] / 100.0 < 1):
+                # make 1 core for builds specified as percent
+                if is_perc and (
+                    count <= 0.0 or number_of_free_cores * params[i][2] / 100.0 < 1
+                ):
                     params[i][2] = 1
                     params[i][3] = False
 
@@ -175,14 +202,14 @@ class FuzzManager:
                     params[i][2] = count * 100.0 / percsum
             percsum = 100.0
 
-        count_exact = sum(count for _, _, count, is_perc in params if is_perc == False)
-        count_free = self.args.instances - count_exact
-        if count_free < 0 or (count_free == 0 and percsum > 0.0):
+        sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
+        number_of_free_cores = self.args.instances - sum_cores_exact
+        if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
             sys.exit(
                 "Error in --builds argument: not enough processor cores to fit desired configuration"
             )
 
-        # convert all the rest rest percent ratios to number of cores
+        # convert all the rest percent ratios to number of cores
         if percsum > 0.0:
             for i, (_, _, p, is_perc) in enumerate(params):
                 if is_perc:
@@ -192,37 +219,38 @@ class FuzzManager:
                     params[i].append(0.0)
                 params[i].append(i)  # order
 
-            core_percent = 100.0 / count_free
+            core_percent = 100.0 / number_of_free_cores
             while True:  # TODO: there must be a better way :(
                 params = sorted(params, key=lambda x: -x[4])
                 for i, (_, _, _, _, perc, _) in enumerate(params):
-                    if perc > 0.0:
-                        params[i][4] -= core_percent
-                        percsum -= core_percent
-                        params[i][2] += 1
-                        if percsum <= core_percent:
-                            break
+                    if perc <= 0.0:
+                        continue
+                    params[i][4] -= core_percent
+                    percsum -= core_percent
+                    params[i][2] += 1
+                    if percsum <= core_percent:
+                        break
                 if percsum <= core_percent:
                     break
 
-            used_cores = sum(c for _, _, c, _, _, _ in params)
-            if used_cores != self.args.instances:
+            number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
+            if number_of_used_cores != self.args.instances:
                 if self.args.verbose:
                     print(
                         "Math in fuzzman is junky! Fixing error with delta of %d cores"
-                        % (used_cores - self.args.instances)
+                        % (number_of_used_cores - self.args.instances,)
                     )
                 params = sorted(params, key=lambda x: -x[4])
-                params[0][2] -= used_cores - self.args.instances
+                params[0][2] -= number_of_used_cores - self.args.instances
                 if self.args.verbose:
                     pprint(params)
 
-                used_cores = sum(c for _, _, c, _, _, _ in params)
-                if used_cores != self.args.instances:
+                number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
+                if number_of_used_cores != self.args.instances:
                     sys.exit(
                         "Math in fuzzman is really junky! Error with delta of %d cores! "
                         "Please create an issue with verbose run screenshot.\nFor now you may want to specify different percent/amount of cores"
-                        % (used_cores - self.args.instances)
+                        % (number_of_used_cores - self.args.instances,)
                     )
 
             params = sorted(params, key=lambda x: x[5])  # return original order
@@ -231,17 +259,17 @@ class FuzzManager:
             map(lambda x: x[0:3], params)
         )  # leave only name, path and number of cores
 
-        used_cores = sum(c for _, _, c in params)
-        if self.cores_specified and used_cores != self.args.instances:
+        number_of_used_cores = sum(c for _, _, c in params)
+        if self.cores_specified and number_of_used_cores != self.args.instances:
             sys.exit(
                 "Error in --builds argument: less cores specified in --builds (%d) than in -n (%d)"
-                % (used_cores, self.args.instances)
+                % (number_of_used_cores, self.args.instances)
             )
 
         if self.args.verbose:
             print(
                 "Using %d cores out of total %d available in OS"
-                % (used_cores, cpu_count())
+                % (number_of_used_cores, cpu_count())
             )
 
         return params
@@ -252,38 +280,41 @@ class FuzzManager:
         Returns list of commands to run instead of fuzzman-generated commands.
         Each element in result list is [worker_name, command]
         """
+
         cmds = []
         if not os.path.isfile(path):
             sys.exit("Error: file '%s' doesn't exist or it's not a file" % path)
 
         with open(path, "rt") as f:
-            for line in f:
-                line = line.strip()
-                if len(line) < 1 or line[0] == "#":
-                    continue
+            lines = f.readlines()
 
-                cmd = line.split(":", 1)
-                if len(cmd) != 2:
+        for line in lines:
+            line = line.strip()
+            if len(line) < 1 or line[0] == "#":
+                continue
+
+            cmd = line.split(":", 1)
+            if len(cmd) != 2:
+                sys.exit(
+                    "Error: bad command in file %s: %s\nCorrect format:\n  name : command"
+                    % (path, line)
+                )
+
+            worker = []
+            for s in cmd:
+                s = s.strip()
+                if len(s) < 1:
                     sys.exit(
-                        "Error: bad command in file %s: %s\nCorrect format:\n  name : command"
+                        "Error: empty worker name or command in file %s: %s\nCorrect format:\n  name : command"
                         % (path, line)
                     )
 
-                worker = []
-                for s in cmd:
-                    s = s.strip()
-                    if len(s) < 1:
-                        sys.exit(
-                            "Error: empty worker name or command in file %s: %s\nCorrect format:\n  name : command"
-                            % (path, line)
-                        )
+                worker.append(s)
 
-                    worker.append(s)
+            if self.args.verbose:
+                print("Loaded custom command: %s" % worker)
 
-                if self.args.verbose:
-                    print("Loaded custom command: %s" % worker)
-
-                cmds.append(worker)
+            cmds.append(worker)
 
         # some sanity checks
         if len(cmds) < 1:
@@ -308,10 +339,11 @@ class FuzzManager:
 
         return cmds
 
-    def start(self, env={}):
+    def start(self, env=None):
         """
         Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file)
         """
+
         if self.args.instances is None:
             self.cores_specified = False
             self.args.instances = cpu_count()
@@ -360,7 +392,8 @@ class FuzzManager:
             for i, (worker_name, cmd) in enumerate(custom_cmds):
                 worker_env = os.environ.copy()
                 worker_env["AFL_FORCE_UI"] = "1"
-                worker_env.update(env)
+                if env is not None:
+                    worker_env.update(env)
 
                 print("Starting worker #%d {%s}: %s" % (i + 1, worker_name, cmd))
                 self.procs.append(
@@ -392,7 +425,7 @@ class FuzzManager:
 
             for name, path, num_cores in params:
                 used_builds.extend([[name, path]] * num_cores)
-        else:
+        else:  # normal run mode
             if which(args.program[0]) is None:
                 sys.exit("File %s not found so it cannot be tested" % args.program[0])
             used_builds = [[None, args.program[0]]] * args.instances
@@ -451,7 +484,10 @@ class FuzzManager:
                 worker_env = os.environ.copy()
                 worker_env["AFL_FORCE_UI"] = "1"
 
-            worker_env.update(env)
+            if env is not None:
+                worker_env.update(env)
+
+            cmd = cmd.strip()
 
             if args.dump_cmd_file:
                 wenv = " ".join(k + "=" + v for k, v in worker_env.items())
@@ -477,6 +513,10 @@ class FuzzManager:
         self.start_time = int(time())
 
     def stop(self, grace_sig=signal.SIGINT):
+        """
+        Stop all fuzzer workers
+        """
+
         if len(self.procs) < 1:
             return
 
@@ -501,6 +541,10 @@ class FuzzManager:
         self.procs = []
 
     def health_check(self):
+        """
+        Check if fuzzer workers are still running, also print each worker status
+        """
+
         if len(self.procs) < 1:
             return False
 
@@ -511,18 +555,22 @@ class FuzzManager:
         return num_ok > 0
 
     def display_next_status_screen(self, outfile=sys.stdout, dump=False):
+        """
+        Show interactive status screen of one fuzzer for approximately 5 seconds
+        """
+
         if len(self.procs) < 1:
             print("No status screen to show")
             return
         elif len(self.procs) == 1:
-            self.lastshown = 0
+            self.last_shown_screen_idx = 0
 
         outbuf = getattr(outfile, "buffer", outfile)
 
         # helper for drawing workaround on linux with fancy boxes mode
         mqj = b"mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj"
 
-        instance = self.procs[self.lastshown]
+        instance = self.procs[self.last_shown_screen_idx]
         if instance.proc.poll() is None:  # process is still running
             outbuf.write(CURSOR_HIDE)
             if dump:
@@ -568,22 +616,27 @@ class FuzzManager:
         outbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
 
         if len(self.procs) > 0:
-            self.lastshown += 1
-            self.lastshown %= len(self.procs)
+            self.last_shown_screen_idx += 1
+            self.last_shown_screen_idx %= len(self.procs)
 
     def dump_status_screens(self, outfile=sys.stdout):
-        self.lastshown = 0
+        """
+        Print status screens of all fuzzer instances
+        """
+
+        self.last_shown_screen_idx = 0
         outbuf = getattr(outfile, "buffer", outfile)
         for _ in self.procs:
-            outbuf.write(b"\n" * 40)
+            outbuf.write(b"\n" * 40) # messy "workaround" for overlapping status screens (tmux, etc)
             self.display_next_status_screen(outfile=outfile, dump=True)
 
         outbuf.write(b"\n\n")
 
     def get_fuzzer_stats(self, output_dir, idx, instance):
         """
-        Form dictionary from fuzzer_stats file of given fuzzer instance
+        Form a dictionary from fuzzer_stats file of given fuzzer instance
         """
+
         if instance.name is None or len(instance.name) < 1:
             print(
                 "Wasn't able to get stats of instance #%d because somehow it has no name"
@@ -603,7 +656,7 @@ class FuzzManager:
 
         try:
             with open(stats_file_path, "rt") as f:
-                data = f.read()
+                data = f.readlines()
         except OSError:
             print(
                 "Wasn't able to get stats of instance %s because of fail to open '%s'"
@@ -621,22 +674,27 @@ class FuzzManager:
             return None
 
         stats = dict()
-        for line in data.split("\n"):
-            if ":" in line:
-                k, v = line.split(":", 1)
-                k = k.strip()
-                v = v.strip()
-                stats[k] = v
+        for line in data:
+            if ":" not in line:
+                continue
+
+            k, v = line.split(":", 1)
+            k = k.strip()
+            v = v.strip()
+            stats[k] = v
+        
         if len(stats) < 1:
             return None
+        
         return stats
 
     @staticmethod
     def update_stat_timestamp(stats_dict, stat_name, saved_newest_stamp):
         """
-        Use this method to update last path (crash, hang, etc) timestamp.
+        Use this method to update last (newest) path (crash, hang, etc) timestamp.
         Example: newest_path_stamp = update_stat_timestamp(stats, "last_path", newest_path_stamp)
         """
+
         stamp = stats_dict.get(stat_name)
 
         if stamp is None:
@@ -654,6 +712,10 @@ class FuzzManager:
 
     @staticmethod
     def format_seconds(seconds):
+        """
+        Returns time in AFL-like format: days, hrs, min, sec
+        """
+
         s = seconds % 60
         m = (seconds // 60) % 60
         h = (seconds // 3600) % 24

@@ -18,7 +18,7 @@ from threading import Thread, Lock, Event
 # python2 compatibility
 try:
     from subprocess import TimeoutExpired, SubprocessError
-except:
+except ImportError:
     TimeoutExpired = Exception
     SubprocessError = Exception
 
