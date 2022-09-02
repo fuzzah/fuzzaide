@@ -35,7 +35,7 @@ class FuzzManager:
         3. Monitoring and restarting of commands
         4. Statistics counting
         5. Desicion making on termination of fuzzing job
-    
+
     Limitations:
         1. Only AFL, AFL++ supported
         2. Only interactive output mode supported
@@ -627,7 +627,9 @@ class FuzzManager:
         self.last_shown_screen_idx = 0
         outbuf = getattr(outfile, "buffer", outfile)
         for _ in self.procs:
-            outbuf.write(b"\n" * 40) # messy "workaround" for overlapping status screens (tmux, etc)
+            outbuf.write(
+                b"\n" * 40
+            )  # messy "workaround" for overlapping status screens (tmux, etc)
             self.display_next_status_screen(outfile=outfile, dump=True)
 
         outbuf.write(b"\n\n")
@@ -682,10 +684,10 @@ class FuzzManager:
             k = k.strip()
             v = v.strip()
             stats[k] = v
-        
+
         if len(stats) < 1:
             return None
-        
+
         return stats
 
     @staticmethod
@@ -786,7 +788,7 @@ class FuzzManager:
                 )
                 print(
                     "\tpaths discovered: %d (%.2f%% of total paths)"
-                    % (paths_found, 100.0 * paths_found / paths_total)
+                    % (paths_found, 100.0 * paths_found / (paths_total or 1))
                 )
 
             newest_path_stamp = self.update_stat_timestamp(

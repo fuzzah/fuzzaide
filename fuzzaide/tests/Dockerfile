@@ -62,6 +62,12 @@ ENV AFL_SKIP_CPUFREQ=1
 ENV AFL_TRY_AFFINITY=1
 ENV AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 
+RUN : \
+    && pip3 install \
+        pytest \
+        pytest-mock \
+    && :
+
 COPY . /fuzzaide
 RUN : \
     && cd /fuzzaide \
