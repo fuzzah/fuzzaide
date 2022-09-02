@@ -13,6 +13,7 @@ import os
 try:
     from shutil import which
 except:
+
     def _access_check(fn, mode):
         return os.path.exists(fn) and os.access(fn, mode) and not os.path.isdir(fn)
 

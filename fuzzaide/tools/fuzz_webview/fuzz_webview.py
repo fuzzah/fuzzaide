@@ -19,10 +19,9 @@ import argparse
 from datetime import datetime
 from threading import Thread, Lock, Event
 
-try:
-    from flask import Flask, render_template, send_from_directory
-except:
-    sys.exit("Please install Flask")
+from flask import Flask, render_template, send_from_directory
+
+from fuzzaide.common.fuzz_stats import get_afl_stat_name, is_afl_fuzzer_stats_old
 
 
 class StatsLoader(Thread):
@@ -123,10 +122,14 @@ class StatsLoader(Thread):
 
         for fname in filenames:
             stats = self.get_fuzzer_stats(fname)
-            if stats is None:
+            if not stats:
                 continue
 
-            last_upd = int(stats.get("last_update", 0))
+            use_old_style = is_afl_fuzzer_stats_old(stats)
+
+            last_upd = int(
+                stats.get(get_afl_stat_name("last_update", use_old_style), 0)
+            )
             if last_upd > 0:
                 delta = now - last_upd
                 mess = self.format_seconds(delta) + " ago"
@@ -135,9 +138,13 @@ class StatsLoader(Thread):
                 stats["last_update"] = mess
             all_stats.append(stats)
 
-            crashes = int(stats.get("unique_crashes", 0))
-            hangs = int(stats.get("unique_hangs", 0))
-            paths_total = int(stats.get("paths_total", 0))
+            crashes = int(
+                stats.get(get_afl_stat_name("unique_crashes", use_old_style), 0)
+            )
+            hangs = int(stats.get(get_afl_stat_name("unique_hangs", use_old_style), 0))
+            paths_total = int(
+                stats.get(get_afl_stat_name("paths_total", use_old_style), 0)
+            )
 
             sum_crashes += crashes
             sum_hangs += hangs
@@ -145,13 +152,15 @@ class StatsLoader(Thread):
             sum_execs += int(stats.get("execs_done", 0))
 
             newest_path_stamp = self.update_stat_timestamp(
-                stats, "last_path", newest_path_stamp
+                stats, get_afl_stat_name("last_path", use_old_style), newest_path_stamp
             )
             newest_hang_stamp = self.update_stat_timestamp(
-                stats, "last_hang", newest_hang_stamp
+                stats, get_afl_stat_name("last_hang", use_old_style), newest_hang_stamp
             )
             newest_crash_stamp = self.update_stat_timestamp(
-                stats, "last_crash", newest_crash_stamp
+                stats,
+                get_afl_stat_name("last_crash", use_old_style),
+                newest_crash_stamp,
             )
 
         if newest_path_stamp == 0:

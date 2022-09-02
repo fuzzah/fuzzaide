@@ -12,7 +12,6 @@ from __future__ import print_function
 import os
 import sys
 import glob
-import shlex
 import shutil
 import signal
 from time import sleep, time
@@ -21,6 +20,7 @@ from pprint import pprint
 from multiprocessing import cpu_count
 
 from fuzzaide.common import isnumeric, which
+from fuzzaide.common.fuzz_stats import is_afl_fuzzer_stats_old, get_afl_stat_name
 from .args import get_launch_args
 from .running_process import RunningAFLProcess, TimeoutExpired
 from .const import *
@@ -751,16 +751,29 @@ class FuzzManager:
         sum_crashes = 0
         sum_restarts = 0
 
+        use_old_style = None
+
         for idx, instance in enumerate(self.procs, start=1):
             stats = self.get_fuzzer_stats(output_dir, idx, instance)
 
-            if stats is None:
+            if not stats:
                 continue
 
-            crashes = int(stats.get("unique_crashes", 0))
-            hangs = int(stats.get("unique_hangs", 0))
-            paths_total = int(stats.get("paths_total", 0))
-            paths_found = int(stats.get("paths_found", 0))
+            if use_old_style is None:
+                use_old_style = is_afl_fuzzer_stats_old(stats)
+                if use_old_style is None:
+                    continue
+
+            crashes = int(
+                stats.get(get_afl_stat_name("unique_crashes", use_old_style), 0)
+            )
+            hangs = int(stats.get(get_afl_stat_name("unique_hangs", use_old_style), 0))
+            paths_total = int(
+                stats.get(get_afl_stat_name("paths_total", use_old_style), 0)
+            )
+            paths_found = int(
+                stats.get(get_afl_stat_name("paths_found", use_old_style), 0)
+            )
 
             sum_restarts += instance.total_restarts
             sum_crashes += crashes
@@ -792,13 +805,15 @@ class FuzzManager:
                 )
 
             newest_path_stamp = self.update_stat_timestamp(
-                stats, "last_path", newest_path_stamp
+                stats, get_afl_stat_name("last_path", use_old_style), newest_path_stamp
             )
             newest_hang_stamp = self.update_stat_timestamp(
-                stats, "last_hang", newest_hang_stamp
+                stats, get_afl_stat_name("last_hang", use_old_style), newest_hang_stamp
             )
             newest_crash_stamp = self.update_stat_timestamp(
-                stats, "last_crash", newest_crash_stamp
+                stats,
+                get_afl_stat_name("last_crash", use_old_style),
+                newest_crash_stamp,
             )
 
         print("\nStats of this fuzzing job:")

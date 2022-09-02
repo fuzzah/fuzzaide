@@ -177,7 +177,7 @@ def main():
     except ValueError:
         sys.exit("Can't use hash function '%s'" % args.hash)
 
-    def hashfile(filepath, blocksize=2 ** 23):  # read by 8 megabytes
+    def hashfile(filepath, blocksize=2**23):  # read by 8 megabytes
         if not os.path.isfile(filepath):
             return None
         h = hashlib.new(args.hash)

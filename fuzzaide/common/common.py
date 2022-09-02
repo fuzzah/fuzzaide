@@ -11,8 +11,11 @@ from __future__ import print_function
 try:
     "".isnumeric()
 except:
+
     def isnumeric(s):
         return unicode(s).isnumeric()
+
 else:
+
     def isnumeric(s):
         return s.isnumeric()
