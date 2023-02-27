@@ -96,7 +96,7 @@ class Config:
             )
 
         if self.filesize < 1:
-            raise FuzzaideException("file '%s' is empty. Leaving" % self.filepath)
+            raise FuzzaideException(f"file '{self.filepath}' is empty")
 
         if not self.maxsize and not self.num_equal_parts:
             raise FuzzaideException(
@@ -218,11 +218,10 @@ def split_to_equal_parts(config: Config) -> None:
     if num_parts < 2:
         raise FuzzaideException(f"invalid number of parts to split a file: {num_parts}")
 
-    fsize = os.path.getsize(config.filepath)
+    fsize = config.filesize
     if fsize < num_parts:
         raise FuzzaideException(
-            "file '%s' size is only %d bytes. Can't split into %d even parts"
-            % (config.filepath, fsize, num_parts)
+            f"file '{config.filepath}' size is only {fsize} bytes. Can't split into {num_parts} even parts"
         )
 
     output_prefix = config.output_prefix
@@ -285,11 +284,11 @@ def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
     filepath = config.filepath
 
     if not config.output_prefix:
-        config.output_prefix = filepath + "_"
+        output_prefix = config.output_prefix
+    else:
+        output_prefix = filepath + "_"
 
-    fsize = os.path.getsize(filepath)
-    if fsize < 1:
-        raise FuzzaideException("File '%s' is empty. Leaving" % filepath)
+    fsize = config.filesize
 
     blocksize = config.maxsize
     log.debug(
@@ -306,7 +305,7 @@ def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
                 if not data:
                     break
 
-                fname = config.output_prefix + str(name_idx)
+                fname = output_prefix + str(name_idx)
                 log.debug("writing file %s", fname)
 
                 if not config.is_dry_run:
