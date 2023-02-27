@@ -1,23 +1,12 @@
-# -*- coding: utf-8 -*-
-
 # file    :  common/fuzzaide_argparse.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
 
-from __future__ import print_function, absolute_import
-
 import os
 import sys
-
-
-# python < 2.7
-try:
-    import argparse
-except:
-    sys.exit("Please install argparse")
-
+import argparse
 
 class FuzzaideArgumentParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):

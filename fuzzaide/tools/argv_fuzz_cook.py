@@ -6,11 +6,22 @@
 # license :  MIT
 # check repository for more information
 
+from typing import Sequence, Optional
+
 import sys
 import argparse
 
 
-def main():
+def get_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = create_argument_parser()
+    if not argv:
+        parser.print_help()
+        sys.exit(0)
+
+    return parser.parse_args(argv)
+
+
+def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="tool to prepare arguments for use with AFL include "
         "file argv-fuzz-inl.h",
@@ -26,13 +37,19 @@ def main():
         metavar="<rest arguments>",
     )
 
-    if len(sys.argv) < 2:
-        parser.print_help()
-        return 0
+    return parser
 
-    args = parser.parse_args()
-    argv = list(map(lambda x: '"' + x + '"' if " " in x else x, args.arguments))
+
+def process_args(args: Sequence[str]) -> str:
+    argv = list(map(lambda x: '"' + x + '"' if " " in x else x, args))
     prepped = "\x00".join(argv) + "\x00\x00"
+    return prepped
+
+
+def main(argv: Optional[Sequence[str]] = None):
+    args = get_args(argv or sys.argv[1:])
+    prepped = process_args(args.arguments)
+
     if args.cstring:
         print(repr(prepped))
     else:

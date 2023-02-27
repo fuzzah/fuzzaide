@@ -6,8 +6,6 @@
 # license :  MIT
 # check repository for more information
 
-from __future__ import print_function
-
 import os
 import sys
 import glob
@@ -18,7 +16,7 @@ from pprint import pprint
 
 from multiprocessing import cpu_count
 
-from fuzzaide.common import isnumeric, which
+from fuzzaide.common import which
 from fuzzaide.common.fuzz_stats import is_afl_fuzzer_stats_old, get_afl_stat_name
 from .args import get_launch_args
 from .running_process import RunningAFLProcess, TimeoutExpired
@@ -88,7 +86,7 @@ class FuzzManager:
             if num_spec_parts == 1:
                 path = bspec[0]
             elif num_spec_parts == 2:
-                if "%" in bspec[1] or isnumeric(bspec[1]):
+                if "%" in bspec[1] or bspec[1].isnumeric():
                     path = bspec[0]
                     count, perc = self.extract_instance_count(bspec[1])
                 else:
@@ -570,7 +568,6 @@ class FuzzManager:
         # helper for drawing workaround on linux with fancy boxes mode
         mqj = b"mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj"
 
-        is_py2 = sys.version_info[0] == 2
         instance = self.procs[self.last_shown_screen_idx]
         if self.is_process_still_running(instance.proc):
             outbuf.write(CURSOR_HIDE)
@@ -584,11 +581,6 @@ class FuzzManager:
                 need_drawing_workaround = not self.args.no_drawing_workaround and len(
                     data
                 )
-
-                # one of the dirtiest hacks so far: make double terminal clean in python2
-                # .. by sending first half of ANSI sequence "\x1b[H\x1b[2J" twice
-                if is_py2:
-                    data = [l.replace(TERM_CLEAR_PY2_REPLACE, TERM_CLEAR) for l in data]
 
                 if need_drawing_workaround:
                     data[0] = data[0].replace(mqj, b"")

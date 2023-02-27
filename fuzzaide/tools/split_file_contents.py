@@ -1,13 +1,10 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # file    :  split-file-contents.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
-
-from __future__ import print_function
 
 import os
 import sys
@@ -32,7 +29,7 @@ def main():
     parser.add_argument(
         "-s",
         "--maxsize",
-        help="split to blocks of MAXSIZE bytes (k/m/g suffixes supported)",
+        help="split to blocks of up to MAXSIZE bytes (k/m/g suffixes supported)",
         type=str,
         metavar="MAXSIZE",
         default=None,
@@ -118,7 +115,7 @@ def main():
                             % args.output_prefix,
                             file=sys.stderr,
                         )
-                        sys.exit(e)
+                        sys.exit(1)
         else:
             args.output_prefix = ""
 
@@ -152,7 +149,7 @@ def main():
                 "Wasn't able to process input/output files. Error follows:",
                 file=sys.stderr,
             )
-            sys.exit(e)
+            sys.exit(1)
     else:  # split not equally, by size
 
         def get_bytes(s):
@@ -200,7 +197,7 @@ def main():
                 "Wasn't able to process input/output files. Error follows:",
                 file=sys.stderr,
             )
-            sys.exit(e)
+            sys.exit(1)
 
     verbose("Work complete")
     return 0

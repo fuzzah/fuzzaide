@@ -1,12 +1,8 @@
-# -*- coding: utf-8 -*-
-
 # file    :  tools/fuzzman/args.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
-
-from __future__ import print_function
 
 import sys
 import argparse

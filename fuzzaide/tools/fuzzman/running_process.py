@@ -1,26 +1,15 @@
-# -*- coding: utf-8 -*-
-
-# file    :  fuzzman.py
+# file    :  fuzzman/running_process.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
 
-from __future__ import print_function
-
 import sys
 import shlex
 import signal
 from collections import deque
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, TimeoutExpired, SubprocessError
 from threading import Thread, Lock, Event
-
-# python2 compatibility
-try:
-    from subprocess import TimeoutExpired, SubprocessError
-except ImportError:
-    TimeoutExpired = Exception
-    SubprocessError = Exception
 
 
 class RunningAFLProcess:
