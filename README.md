@@ -2,7 +2,7 @@
 collection of helper tools for fuzzing
 
 ## tools
-Fuzzing automator **fuzzman**, WinAFL and Application Verifier crashes minimizer **appverif-minimize.py**, unique files extractor **dupmanage** and other tools useful in daily fuzzing tasks. Python 2 and 3 compatible.<br>
+Fuzzing automator **fuzzman**, WinAFL and Application Verifier crashes minimizer **appverif-minimize.py**, unique files extractor **dupmanage** and other tools useful in daily fuzzing tasks. Python 3 compatible.<br>
 Visit [tools](fuzzaide/tools) directory for more information.
 
 ## libs

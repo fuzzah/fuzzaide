@@ -1,13 +1,10 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # file    :  appverif-minimize.py
 # repo    :  https://github.com/fuzzah/fuzzaide
 # author  :  https://github.com/fuzzah
 # license :  MIT
 # check repository for more information
-
-from __future__ import print_function
 
 import os
 import re
@@ -19,7 +16,6 @@ from xml.sax.saxutils import unescape as sax_unescape
 
 
 def main():
-
     parser = argparse.ArgumentParser(
         description="%(prog)s - tool to minimize AppVerifier XML logs and corresponding WinAFL test cases",
         epilog="*sigh* fuzzing on Windows has always been a mess...",

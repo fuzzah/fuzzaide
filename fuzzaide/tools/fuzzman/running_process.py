@@ -120,7 +120,6 @@ class RunningAFLProcess:
         return lines
 
     def stop(self, force=False, grace_sig=signal.SIGINT):
-
         if self.comm_thread is not None and self.comm_thread.is_alive():
             self.__stop.set()
             self.comm_thread.join(3.0)

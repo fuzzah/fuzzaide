@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # file    :  fuzzman.py
 # repo    :  https://github.com/fuzzah/fuzzaide
@@ -554,7 +553,7 @@ class FuzzManager:
         print("%d/%d workers report OK status" % (num_ok, len(self.procs)))
         return num_ok > 0
 
-    def display_next_status_screen(self, outfile=sys.stdout, dump=False):
+    def display_next_status_screen(self, outfile=sys.stdout, static_dump=False):
         """
         Show interactive status screen of one fuzzer for approximately 5 seconds
         """
@@ -562,7 +561,8 @@ class FuzzManager:
         if len(self.procs) < 1:
             print("No status screen to show")
             return
-        elif len(self.procs) == 1:
+
+        if len(self.procs) == 1:
             self.last_shown_screen_idx = 0
 
         outbuf = getattr(outfile, "buffer", outfile)
@@ -570,32 +570,36 @@ class FuzzManager:
         # helper for drawing workaround on linux with fancy boxes mode
         mqj = b"mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj"
 
+        is_py2 = sys.version_info[0] == 2
         instance = self.procs[self.last_shown_screen_idx]
-        if instance.proc.poll() is None:  # process is still running
+        if self.is_process_still_running(instance.proc):
             outbuf.write(CURSOR_HIDE)
-            if dump:
+            if static_dump:
                 num_dumps = 1
             else:
                 num_dumps = 100
 
             for _ in range(num_dumps):
                 data = instance.get_output(24)
+                need_drawing_workaround = not self.args.no_drawing_workaround and len(
+                    data
+                )
 
                 # one of the dirtiest hacks so far: make double terminal clean in python2
                 # .. by sending first half of ANSI sequence "\x1b[H\x1b[2J" twice
-                if sys.version_info[0] == 2:
+                if is_py2:
                     data = [l.replace(TERM_CLEAR_PY2_REPLACE, TERM_CLEAR) for l in data]
 
-                if not self.args.no_drawing_workaround and len(data) > 0:
+                if need_drawing_workaround:
                     data[0] = data[0].replace(mqj, b"")
 
                 for line in data:
                     outbuf.write(line)
 
-                if not self.args.no_drawing_workaround and len(data) > 0:
+                if need_drawing_workaround:
                     outbuf.write(SET_G1 + bSTG + mqj + bSTOP + cRST + RESET_G1)
 
-                if not dump:
+                if not static_dump:
                     sleep(0.05)
             outbuf.write(CURSOR_SHOW)
         else:  # process is not running
@@ -610,7 +614,7 @@ class FuzzManager:
             data = instance.get_output(29)
             for line in data:
                 outbuf.write(line)
-            if not dump:
+            if not static_dump:
                 sleep(5.0)
 
         outbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
@@ -618,6 +622,10 @@ class FuzzManager:
         if len(self.procs) > 0:
             self.last_shown_screen_idx += 1
             self.last_shown_screen_idx %= len(self.procs)
+
+    @staticmethod
+    def is_process_still_running(proc):
+        return proc.poll() is None
 
     def dump_status_screens(self, outfile=sys.stdout):
         """
@@ -630,7 +638,7 @@ class FuzzManager:
             outbuf.write(
                 b"\n" * 40
             )  # messy "workaround" for overlapping status screens (tmux, etc)
-            self.display_next_status_screen(outfile=outfile, dump=True)
+            self.display_next_status_screen(outfile=outfile, static_dump=True)
 
         outbuf.write(b"\n\n")
 
