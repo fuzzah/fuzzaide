@@ -12,6 +12,18 @@ import sys
 import argparse
 
 
+def main(argv: Optional[Sequence[str]] = None):
+    args = get_args(argv or sys.argv[1:])
+    prepped = process_args(args.arguments)
+
+    if args.cstring:
+        print(repr(prepped))
+    else:
+        print(prepped, end="")
+
+    return 0
+
+
 def get_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = create_argument_parser()
     if not argv:
@@ -44,18 +56,6 @@ def process_args(args: Sequence[str]) -> str:
     argv = list(map(lambda x: '"' + x + '"' if " " in x else x, args))
     prepped = "\x00".join(argv) + "\x00\x00"
     return prepped
-
-
-def main(argv: Optional[Sequence[str]] = None):
-    args = get_args(argv or sys.argv[1:])
-    prepped = process_args(args.arguments)
-
-    if args.cstring:
-        print(repr(prepped))
-    else:
-        print(prepped, end="")
-
-    return 0
 
 
 if __name__ == "__main__":

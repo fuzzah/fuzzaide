@@ -8,6 +8,7 @@ import os
 import sys
 import argparse
 
+
 class FuzzaideArgumentParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         argparse.ArgumentParser.__init__(self, *args, **kwargs)
