@@ -3,7 +3,9 @@ collection of helper tools for fuzzing
 
 ## tools
 Fuzzing automator **fuzzman**, WinAFL and Application Verifier crashes minimizer **appverif-minimize.py**, unique files extractor **dupmanage** and other tools useful in daily fuzzing tasks. Python 3 compatible.<br>
-Visit [tools](fuzzaide/tools) directory for more information.
+Visit [tools](fuzzaide/tools) directory for more information.<br>
+
+Note: the last working Python 2 version is in the `py2` branch, and the `py2_no_setup` branch has tools in their single-file form, which require no installation. For both the minimal python version is 2.6. These are not supported and only kept here for ancient systems with no updates available.<br>
 
 ## libs
 Short descriptions are given below.<br>
