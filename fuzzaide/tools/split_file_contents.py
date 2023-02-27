@@ -283,7 +283,7 @@ def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
 
     filepath = config.filepath
 
-    if not config.output_prefix:
+    if config.output_prefix:
         output_prefix = config.output_prefix
     else:
         output_prefix = filepath + "_"
