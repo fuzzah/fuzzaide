@@ -34,22 +34,19 @@ def main(argv: Optional[Sequence[str]] = None):
     post_process_input_output_paths(args)
 
     filenames = select_input_files(args.input_dir, select_hidden=args.all)
+
     num_files = len(filenames)
 
     if num_files < 1:
-        log.error("no files to process")
+        log.error("no files to process in %s", args.input_dir)
         return 1
 
-    num_dirs = math.ceil(len(filenames) / args.chunk_size)
+    num_dirs = math.ceil(num_files / args.chunk_size)
 
-    message = "%d files from %s to %s0" % (
-        num_files,
-        args.input_dir,
-        args.output_prefix,
-    )
+    message = f"{num_files} files from {args.input_dir} to {args.output_prefix}0"
 
     if num_dirs > 1:
-        message += "-%s" % (args.output_prefix + str(num_dirs - 1))
+        message += f"-{args.output_prefix}{num_dirs-1}"
 
     if args.move:
         log.info("will MOVE %s", message)
@@ -105,7 +102,7 @@ def select_input_files(input_dir: str, select_hidden: bool) -> List[str]:
     if select_hidden:
         filenames.extend(glob.glob(os.path.join(input_dir, ".*")))
 
-    filenames = sorted(filter(lambda path: os.path.isfile(path), filenames))
+    filenames = sorted(filter(os.path.isfile, filenames))
     return filenames
 
 

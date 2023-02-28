@@ -23,7 +23,9 @@ from fuzzaide.common.exception import FuzzaideException
 def main(argv: Optional[Sequence[str]] = None):
     try:
         config = get_config(argv or sys.argv[1:])
-        logging.basicConfig(level=config.log_level)
+        logging.basicConfig(
+            level=config.log_level, format="%(levelname)-8s | %(message)s"
+        )
 
         log.debug("config=%s", str(config))
 
