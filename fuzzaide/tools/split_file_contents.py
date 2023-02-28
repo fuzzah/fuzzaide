@@ -118,7 +118,7 @@ class Config:
 
 
 def get_config(argv: Sequence[str]) -> Config:
-    args = get_args(argv or sys.argv[1:])
+    args = get_args(argv)
     return Config.from_args(args)
 
 
@@ -144,8 +144,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         "--output-prefix",
-        help="prefix for names of output files, may start with path for -s, "
-        "should be output directory path for -e",
+        help="prefix for names of output files, "
+        'may include slashes ("/") to create subdirectories',
         default=None,
     )
 
@@ -221,23 +221,12 @@ def split_to_equal_parts(config: Config) -> None:
     fsize = config.filesize
     if fsize < num_parts:
         raise FuzzaideException(
-            f"file '{config.filepath}' size is only {fsize} bytes. Can't split into {num_parts} even parts"
+            f"file '{config.filepath}' size is only {fsize} bytes. "
+            f"Can't split into {num_parts} even parts"
         )
 
+    create_output_dir_if_required(config)
     output_prefix = config.output_prefix
-
-    need_create_prefix_dir = bool(output_prefix) and not os.path.isdir(output_prefix)
-
-    if need_create_prefix_dir:
-        log.debug("creating directory: '%s'", output_prefix)
-
-        if not config.is_dry_run:
-            try:
-                os.makedirs(output_prefix, exist_ok=True)
-            except OSError as e:
-                raise FuzzaideException(
-                    f"wasn't able to create output directory '{output_prefix}': {e}"
-                ) from e
 
     blocksize = fsize // num_parts
 
@@ -259,9 +248,10 @@ def split_to_equal_parts(config: Config) -> None:
                     break
 
                 if names:
-                    fname = os.path.join(output_prefix, names[name_idx])
+                    fname = output_prefix + names[name_idx]
                 else:
                     fname = output_prefix + str(name_idx)
+
                 log.debug("writing file %s", fname)
 
                 if not config.is_dry_run:
@@ -276,6 +266,30 @@ def split_to_equal_parts(config: Config) -> None:
         ) from e
 
 
+def create_output_dir_if_required(config: Config) -> None:
+    output_prefix = config.output_prefix
+    dir_parts = output_prefix.split(os.sep)
+    if len(dir_parts) > 1:
+        dir_to_create = os.path.join(*dir_parts[:-1])
+    else:
+        dir_to_create = ""
+
+    need_create_prefix_dir = bool(dir_to_create) and not os.path.isdir(output_prefix)
+
+    if not need_create_prefix_dir:
+        return
+
+    log.debug("creating directory: '%s'", dir_to_create)
+
+    if not config.is_dry_run:
+        try:
+            os.makedirs(dir_to_create, exist_ok=True)
+        except OSError as e:
+            raise FuzzaideException(
+                f"wasn't able to create output directory '{output_prefix}': {e}"
+            ) from e
+
+
 def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
     """
     Split file to chunks of up to given size.
@@ -285,6 +299,7 @@ def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
 
     if config.output_prefix:
         output_prefix = config.output_prefix
+        create_output_dir_if_required(config)
     else:
         output_prefix = filepath + "_"
 
@@ -314,5 +329,5 @@ def split_to_chunks_of_up_to_n_bytes(config: Config) -> None:
                 name_idx += 1
     except OSError as e:
         raise FuzzaideException(
-            f"wasn't able to process input/output files: {e}. Please make sure output directory exists"
+            f"wasn't able to process input/output files: {e}"
         ) from e

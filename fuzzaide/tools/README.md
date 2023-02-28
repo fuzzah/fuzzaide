@@ -193,12 +193,13 @@ In this case you can invoke split-dir-contents.py as follows:<br>
 If directory 'myfiles' contains 950 files you'll end up with 10 directories named splitted0 - splitted9 each containing not more than 100 files (directory splitted9 will contain 50 files).<br>
 
 ### split-file-contents.py
-This Python script splits one file into few files to create samples for reproducing crashes/hangs. This is useful when tested application reads input from many files, but you have implemented fuzzing harness to read inputs from one fuzzed file to simultaneously fuzz multiple files.<br>
-Two modes of splitting are implemented: split input file equally (exact naming of output files supported) or split input file to chunks of not more than size specified.<br>
+This Python script splits one file into few files to create samples for reproducing crashes/hangs on original tested application. This is useful when the app reads input from many files, but you have implemented fuzzing harness to read inputs from a single file to simultaneously test multiple parsers in one program.<br>
+Two modes of splitting are implemented: split input file equally (exact naming of output files supported) or split input file to chunks of not more than the size specified.<br>
 Invocation example:
 ```
-./split-file-contents.py -i crashcase -e 2 --names "player.dxt,player.obj" -o reproduce
+./split-file-contents.py -i crashcase -e 2 --names "player.dxt,player.obj" -o reproduce/
 ```
-This will equally split file 'crashcase' into two files, file 'reproduce/player.dxt' will contain the first half of file 'crashcase' and 'reproduce/player.obj' will contain the second half.<br>
+This will equally split the 'crashcase' file into two files, the file 'reproduce/player.dxt' will contain the first half of the 'crashcase', and the 'reproduce/player.obj' will contain the second half.<br>
+Pay attention to the slash in the `-o reproduce/`. If there's no need to create directory, omit the slash, and the file names will be 'reproduceplayer.dxt' and 'reproduceplayer.obj'.<br>
 Of course **it is assumed that your fuzzing harness splits input file in the same manner**.<br>
-See --help for more info and check script code to see how it exactly works.
+See --help for more info and check script code to see how it exactly works, and don't hesitate to experiment with the `--dry-run` option.
