@@ -441,14 +441,14 @@ class FuzzManager:
             if i == 0:
                 role = "-M"
                 worker_name = "m"
-                power_schedule = " -p exploit"
                 if args.dict:
                     dictionary = " -x " + args.dict
 
             else:
                 role = "-S"
                 worker_name = "s"
-                power_schedule = " -p seek"
+
+            power_schedule = " -p explore" if i % 2 == 0 else " -p fast"
 
             worker_name += str(i + 1)
 
