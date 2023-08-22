@@ -6,22 +6,28 @@
 # license :  MIT
 # check repository for more information
 
+from typing import Tuple, List, Union, Iterable
+
 import os
 import sys
 import glob
 import shutil
 import signal
+import argparse
 from time import sleep, time
 from pprint import pprint
 
 from multiprocessing import cpu_count
 
 from fuzzaide.common import which
+from fuzzaide.common.exception import FuzzaideException
 from fuzzaide.common.fuzz_stats import is_afl_fuzzer_stats_old, get_afl_stat_name
 from .args import get_launch_args
 from .running_process import RunningAFLProcess, TimeoutExpired
 from .const import *
 
+
+BuildSpecType = List[Union[str, int, float, bool, None]] # XXX: dataclass or something
 
 class FuzzManager:
     """
@@ -38,7 +44,7 @@ class FuzzManager:
         2. Only interactive output mode supported
     """
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         self.procs = list()
         self.last_shown_screen_idx = 0
         self.args = args
@@ -48,9 +54,10 @@ class FuzzManager:
         self.num_from_file = 0
 
     @staticmethod
-    def extract_instance_count(amount):
+    def extract_instance_count_or_exit(amount: str) -> Tuple[Union[int, float], bool]:
         """
-        Gets number of instances from strings like "5", "10%" or "66.6%"
+        Gets number of instances from strings like "5", "10%" or "66.6%".
+        Returns: (value, is_percent)
         """
 
         count = 0
@@ -68,44 +75,19 @@ class FuzzManager:
 
         return count, perc
 
-    def extract_complex_mode_params(self):
+    @staticmethod
+    def extract_complex_mode_params(user_builds: Iterable[str], program: str, verbose: bool = False):
         """
-        Iterate over --builds arguments and extract group name, path, number/percent of cpu cores
+        Iterate over --builds arguments and extract group name, path, number/percent of cpu cores.
+        Raises FuzzaideException on errors.
         """
 
-        args = self.args
+        params: List[BuildSpecType] = []
+        for build_spec in user_builds:
+            bspec = FuzzManager.extract_one_spec_complex_params(build_spec)
+            params.append(bspec)
 
-        params = []
-        for build_spec in args.builds:
-            bspec = build_spec.split(":")  # 0:1:2 -> NAME:PATH:N[%]
-            num_spec_parts = len(bspec)
-            name = None
-            path = None
-            count = None
-            perc = False
-            if num_spec_parts == 1:
-                path = bspec[0]
-            elif num_spec_parts == 2:
-                if "%" in bspec[1] or bspec[1].isnumeric():
-                    path = bspec[0]
-                    count, perc = self.extract_instance_count(bspec[1])
-                else:
-                    name = bspec[0]
-                    path = bspec[1]
-            elif num_spec_parts == 3:
-                name = bspec[0]
-                path = bspec[1]
-                count, perc = self.extract_instance_count(bspec[2])
-            else:
-                sys.exit(
-                    "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
-                )
-
-            if path.startswith("~"):
-                path = os.path.expanduser(path)
-            params.append([name, path, count, perc])
-
-        if args.verbose:
+        if verbose:
             print("Params of --builds: ")
             pprint(params)
 
@@ -113,18 +95,16 @@ class FuzzManager:
         all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
 
         if not all_dirs and not all_bins:
-            sys.exit(
-                "Error: --builds should point EITHER to directories OR to binaries"
-            )
+            raise FuzzaideException("--builds should point EITHER to directories OR to binaries")
 
         # build directories provided -> each one should contain binary with same app name
         if all_dirs:
             for i, (_, dirpath, _, _) in enumerate(params):
-                path = os.path.normpath(os.path.join(dirpath, args.program[0]))
+                path = os.path.normpath(os.path.join(dirpath, program))
                 if not os.path.isfile(path):
-                    sys.exit(
+                    raise FuzzaideException(
                         "Error in --builds argument: directory '%s' does not contain '%s' (path checked: '%s')"
-                        % (dirpath, args.program[0], path)
+                        % (dirpath, program, path)
                     )
                 params[i][1] = path
 
@@ -133,29 +113,68 @@ class FuzzManager:
         # exact binaries specified (full or partial paths or in PATH)
         for i, (_, binpath, _, _) in enumerate(params):
             if which(binpath) is None:
-                sys.exit(
+                raise FuzzaideException(
                     "Error in --builds argument: file %s not found so it cannot be tested"
                     % (binpath,)
                 )
 
         return params
 
-    def adjust_complex_mode_params(self, params):
+    @staticmethod
+    def extract_one_spec_complex_params(build_spec: str) -> BuildSpecType:
+        """
+        Parse one `build_spec` string, return [name: str | None, path: str, count: int | float | None, is_percent: bool | None].
+        Raises FuzzaideException on errors.
+        """
+        bspec = build_spec.split(":")  # 0:1:2 -> NAME:PATH:N[%]
+        num_spec_parts = len(bspec)
+        name = None
+        path = None
+        count = None
+        perc = False
+        if num_spec_parts == 1:
+            path = bspec[0]
+        elif num_spec_parts == 2:
+            if "%" in bspec[1] or bspec[1].isnumeric():
+                path = bspec[0]
+                count, perc = FuzzManager.extract_instance_count_or_exit(bspec[1])
+            else:
+                name = bspec[0]
+                path = bspec[1]
+        elif num_spec_parts == 3:
+            name = bspec[0]
+            path = bspec[1]
+            count, perc = FuzzManager.extract_instance_count_or_exit(bspec[2])
+        else:
+            raise FuzzaideException(
+                "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
+            )
+
+        if path.startswith("~"):
+            path = os.path.expanduser(path)
+
+        return [name, path, count, perc]
+
+    @staticmethod
+    def adjust_complex_mode_params(params: List[BuildSpecType], num_instances: int, were_cores_specified: bool, verbose: bool = False) -> List[BuildSpecType]:
         """
         For complex mode (--builds). Converts percent ratios to number of instances
         and makes sure that each build is used at least once.
-        params is a list of 4-item lists: name, path, count/percent, is_percent
+        params is a list of 4-item lists: name, path, count/percent, is_percent.
+        Raises FuzzaideException on errors.
         """
 
         # sum percents as specified by user
         percsum = 0.0
+        count: Union[int, float, None]
+        is_perc: Union[bool, None]
         for _, _, count, is_perc in params:
             if count is not None and is_perc:
                 percsum += count
 
         # normalize percents to 100 if required
         if percsum > 100.0:
-            if self.args.verbose:
+            if verbose:
                 print(
                     "Info: sum of percents in --builds is %.2f%% which is not 100%%. Will proportionally adjust it"
                     % (percsum,)
@@ -176,9 +195,9 @@ class FuzzManager:
                     params[i][3] = True
 
         sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
-        number_of_free_cores = self.args.instances - sum_cores_exact
+        number_of_free_cores = num_instances - sum_cores_exact
         if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
-            sys.exit(
+            raise FuzzaideException(
                 "Error in --builds argument: not enough processor cores to fit desired configuration"
             )
 
@@ -200,9 +219,9 @@ class FuzzManager:
             percsum = 100.0
 
         sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
-        number_of_free_cores = self.args.instances - sum_cores_exact
+        number_of_free_cores = num_instances - sum_cores_exact
         if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
-            sys.exit(
+            raise FuzzaideException(
                 "Error in --builds argument: not enough processor cores to fit desired configuration"
             )
 
@@ -230,24 +249,25 @@ class FuzzManager:
                 if percsum <= core_percent:
                     break
 
+            # sanity check
             number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
-            if number_of_used_cores != self.args.instances:
-                if self.args.verbose:
+            if number_of_used_cores != num_instances:
+                if verbose:
                     print(
-                        "Math in fuzzman is junky! Fixing error with delta of %d cores"
-                        % (number_of_used_cores - self.args.instances,)
+                        "Math in fuzzman is janky! Fixing error with delta of %d cores"
+                        % (number_of_used_cores - num_instances,)
                     )
                 params = sorted(params, key=lambda x: -x[4])
-                params[0][2] -= number_of_used_cores - self.args.instances
-                if self.args.verbose:
+                params[0][2] -= number_of_used_cores - num_instances
+                if verbose:
                     pprint(params)
 
                 number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
-                if number_of_used_cores != self.args.instances:
-                    sys.exit(
-                        "Math in fuzzman is really junky! Error with delta of %d cores! "
+                if number_of_used_cores != num_instances:
+                    raise FuzzaideException(
+                        "Math in fuzzman is really janky! Error with delta of %d cores! "
                         "Please create an issue with verbose run screenshot.\nFor now you may want to specify different percent/amount of cores"
-                        % (number_of_used_cores - self.args.instances,)
+                        % (number_of_used_cores - num_instances,)
                     )
 
             params = sorted(params, key=lambda x: x[5])  # return original order
@@ -257,13 +277,13 @@ class FuzzManager:
         )  # leave only name, path and number of cores
 
         number_of_used_cores = sum(c for _, _, c in params)
-        if self.cores_specified and number_of_used_cores != self.args.instances:
-            sys.exit(
+        if were_cores_specified and number_of_used_cores != num_instances:
+            raise FuzzaideException(
                 "Error in --builds argument: less cores specified in --builds (%d) than in -n (%d)"
-                % (number_of_used_cores, self.args.instances)
+                % (number_of_used_cores, num_instances)
             )
 
-        if self.args.verbose:
+        if verbose:
             print(
                 "Using %d cores out of total %d available in OS"
                 % (number_of_used_cores, cpu_count())
@@ -338,7 +358,8 @@ class FuzzManager:
 
     def start(self, env=None):
         """
-        Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file)
+        Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file).
+        Exits the program on errors.
         """
 
         if self.args.instances is None:
@@ -410,15 +431,18 @@ class FuzzManager:
         params = []
         used_builds = []
         if complex_mode:
-            params = self.extract_complex_mode_params()
-            if args.verbose:
-                print('"Raw" params:')
-                pprint(params)
+            try:
+                params = self.extract_complex_mode_params(user_builds=args.builds, program=args.program[0], verbose=args.verbose)
+                if args.verbose:
+                    print('"Raw" params:')
+                    pprint(params)
 
-            params = self.adjust_complex_mode_params(params)
-            if args.verbose:
-                print("Adjusted params:")
-                pprint(params)
+                params = self.adjust_complex_mode_params(params=params, num_instances=args.instances, were_cores_specified=self.cores_specified, verbose=args.verbose)
+                if args.verbose:
+                    print("Adjusted params:")
+                    pprint(params)
+            except FuzzaideException as e:
+                sys.exit(f"Error: {e}")
 
             for name, path, num_cores in params:
                 used_builds.extend([[name, path]] * num_cores)

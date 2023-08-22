@@ -11,7 +11,7 @@ from multiprocessing import cpu_count
 from fuzzaide.common import FuzzaideArgumentParser
 
 
-def get_launch_args():
+def get_launch_args() -> argparse.Namespace:
     parser = create_argument_parser()
 
     if len(sys.argv) < 2:
@@ -19,23 +19,22 @@ def get_launch_args():
         sys.exit(0)
 
     args = parser.parse_args()
-    check_args_for_common_mistakes(args)
+    check_args_and_exit_if_invalid(args)
 
     return args
 
 
-def create_argument_parser():
+def create_argument_parser() -> FuzzaideArgumentParser:
     parser = FuzzaideArgumentParser(
         description="%(prog)s - your humble assistant to automate and manage fuzzing tasks",
         epilog="developed and tested by fuzzah for using with AFL++",
     )
     add_args_to_parser(parser)
     add_examples_to_parser(parser)
-
     return parser
 
 
-def add_args_to_parser(parser):
+def add_args_to_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "program",
         nargs=argparse.REMAINDER,
@@ -146,7 +145,7 @@ def add_args_to_parser(parser):
     )
 
 
-def add_examples_to_parser(parser):
+def add_examples_to_parser(parser: FuzzaideArgumentParser) -> None:
     examples = [
         ["Fuzz ./myapp using all CPU cores until stopped by Ctrl+C", "./myapp"],
         [
@@ -202,7 +201,7 @@ def add_examples_to_parser(parser):
     parser.set_examples(examples)
 
 
-def check_args_for_common_mistakes(args):
+def check_args_and_exit_if_invalid(args: argparse.Namespace) -> None:
     if args.cmd_file is None:
         t_len = len(args.program)
         if t_len < 1 or (args.program[0] == "--" and t_len < 2):
