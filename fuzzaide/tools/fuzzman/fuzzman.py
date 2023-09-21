@@ -6,7 +6,7 @@
 # license :  MIT
 # check repository for more information
 
-from typing import Tuple, List, Union, Iterable
+from typing import Tuple, List, Union, Iterable, Dict, Optional
 
 import os
 import sys
@@ -14,9 +14,9 @@ import glob
 import shutil
 import signal
 import argparse
-from time import sleep, time
 from pprint import pprint
-
+from time import sleep, time
+from dataclasses import dataclass
 from multiprocessing import cpu_count
 
 from fuzzaide.common import which
@@ -27,7 +27,20 @@ from .running_process import RunningAFLProcess, TimeoutExpired
 from .const import *
 
 
-BuildSpecType = List[Union[str, int, float, bool, None]] # XXX: dataclass or something
+@dataclass
+class BuildSpecType:
+    """
+    Settings for one build.
+    Used to store data parsed from the --builds argument.
+    """
+
+    name: Optional[str]
+    path: str
+    count: Optional[Union[int, float]]
+    is_percent: bool
+    calc_percent: float = 0.0
+    original_order: int = 0
+
 
 class FuzzManager:
     """
@@ -76,7 +89,9 @@ class FuzzManager:
         return count, perc
 
     @staticmethod
-    def extract_complex_mode_params(user_builds: Iterable[str], program: str, verbose: bool = False):
+    def extract_complex_mode_params(
+        user_builds: Iterable[str], program: str, verbose: bool = False
+    ) -> List[BuildSpecType]:
         """
         Iterate over --builds arguments and extract group name, path, number/percent of cpu cores.
         Raises FuzzaideException on errors.
@@ -91,31 +106,33 @@ class FuzzManager:
             print("Params of --builds: ")
             pprint(params)
 
-        all_dirs = all(os.path.isdir(p) for _, p, _, _ in params)
-        all_bins = all(os.path.isfile(p) for _, p, _, _ in params)
+        all_dirs = all(os.path.isdir(p.path) for p in params)
+        all_bins = all(os.path.isfile(p.path) for p in params)
 
         if not all_dirs and not all_bins:
-            raise FuzzaideException("--builds should point EITHER to directories OR to binaries")
+            raise FuzzaideException(
+                "--builds should point EITHER to directories OR to binaries"
+            )
 
         # build directories provided -> each one should contain binary with same app name
         if all_dirs:
-            for i, (_, dirpath, _, _) in enumerate(params):
-                path = os.path.normpath(os.path.join(dirpath, program))
-                if not os.path.isfile(path):
+            for i, p in enumerate(params):
+                prog_path = os.path.normpath(os.path.join(p.path, program))
+                if not os.path.isfile(prog_path):
                     raise FuzzaideException(
                         "Error in --builds argument: directory '%s' does not contain '%s' (path checked: '%s')"
-                        % (dirpath, program, path)
+                        % (p.path, program, prog_path)
                     )
-                params[i][1] = path
+                params[i].path = prog_path
 
             return params
 
         # exact binaries specified (full or partial paths or in PATH)
-        for i, (_, binpath, _, _) in enumerate(params):
-            if which(binpath) is None:
+        for i, p in enumerate(params):
+            if which(p.path) is None:
                 raise FuzzaideException(
                     "Error in --builds argument: file %s not found so it cannot be tested"
-                    % (binpath,)
+                    % (p.path,)
                 )
 
         return params
@@ -123,6 +140,7 @@ class FuzzManager:
     @staticmethod
     def extract_one_spec_complex_params(build_spec: str) -> BuildSpecType:
         """
+        XXX: this comment
         Parse one `build_spec` string, return [name: str | None, path: str, count: int | float | None, is_percent: bool | None].
         Raises FuzzaideException on errors.
         """
@@ -153,10 +171,16 @@ class FuzzManager:
         if path.startswith("~"):
             path = os.path.expanduser(path)
 
-        return [name, path, count, perc]
+        # return [name, path, count, perc]
+        return BuildSpecType(name=name, path=path, count=count, is_percent=perc)
 
     @staticmethod
-    def adjust_complex_mode_params(params: List[BuildSpecType], num_instances: int, were_cores_specified: bool, verbose: bool = False) -> List[BuildSpecType]:
+    def adjust_complex_mode_params(
+        params: List[BuildSpecType],
+        num_instances: int,
+        were_cores_specified: bool,
+        verbose: bool = False,
+    ) -> List[BuildSpecType]:
         """
         For complex mode (--builds). Converts percent ratios to number of instances
         and makes sure that each build is used at least once.
@@ -166,11 +190,9 @@ class FuzzManager:
 
         # sum percents as specified by user
         percsum = 0.0
-        count: Union[int, float, None]
-        is_perc: Union[bool, None]
-        for _, _, count, is_perc in params:
-            if count is not None and is_perc:
-                percsum += count
+        for p in params:
+            if p.count is not None and p.is_percent:
+                percsum += p.count
 
         # normalize percents to 100 if required
         if percsum > 100.0:
@@ -179,22 +201,22 @@ class FuzzManager:
                     "Info: sum of percents in --builds is %.2f%% which is not 100%%. Will proportionally adjust it"
                     % (percsum,)
                 )
-            for i, (_, _, count, is_perc) in enumerate(params):
-                if is_perc:
-                    params[i][2] = count * 100.0 / percsum
+            for p in params:
+                if p.is_percent:
+                    p.count = (p.count or 0.0) * 100.0 / percsum
             percsum = 100.0
 
         # count builds without number or percent of cores specified
-        count_none = sum(1 for _, _, count, _ in params if count is None)
+        count_none = sum(1 for p in params if p.count is None)
 
         if count_none > 0:
             # set percents for builds without cores specified
-            for i, (_, _, count, _) in enumerate(params):
-                if count is None:
-                    params[i][2] = (100.0 - percsum) / count_none
-                    params[i][3] = True
+            for p in params:
+                if p.count is None:
+                    p.count = (100.0 - percsum) / count_none
+                    p.is_percent = True
 
-        sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
+        sum_cores_exact = sum(p.count or 0 for p in params if not p.is_percent)
         number_of_free_cores = num_instances - sum_cores_exact
         if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
             raise FuzzaideException(
@@ -202,23 +224,23 @@ class FuzzManager:
             )
 
         if percsum > 0.0:
-            for i, (_, _, count, is_perc) in enumerate(params):
+            for p in params:
                 # make 1 core for builds specified as percent
-                if is_perc and (
-                    count <= 0.0 or number_of_free_cores * params[i][2] / 100.0 < 1
+                if p.is_percent and (
+                    p.count <= 0.0 or number_of_free_cores * p.count / 100.0 < 1
                 ):
-                    params[i][2] = 1
-                    params[i][3] = False
+                    p.count = 1
+                    p.is_percent = False
 
         # final normalization of percents
-        percsum = sum(p for _, _, p, is_perc in params if is_perc)
+        percsum: float = sum(p.count or 0.0 for p in params if p.is_percent)
         if percsum != 0.0 and percsum != 100.0:
-            for i, (_, _, count, is_perc) in enumerate(params):
-                if is_perc:
-                    params[i][2] = count * 100.0 / percsum
+            for p in params:
+                if p.is_percent:
+                    p.count = p.count * 100.0 / percsum
             percsum = 100.0
 
-        sum_cores_exact = sum(count for _, _, count, is_perc in params if not is_perc)
+        sum_cores_exact = sum(p.count or 0 for p in params if not p.is_percent)
         number_of_free_cores = num_instances - sum_cores_exact
         if number_of_free_cores < 0 or (number_of_free_cores == 0 and percsum > 0.0):
             raise FuzzaideException(
@@ -227,42 +249,51 @@ class FuzzManager:
 
         # convert all the rest percent ratios to number of cores
         if percsum > 0.0:
-            for i, (_, _, p, is_perc) in enumerate(params):
-                if is_perc:
-                    params[i].append(p)
-                    params[i][2] = 0
+            for i, p in enumerate(params):
+                if p.is_percent:
+                    p.calc_percent = p.count
+                    p.count = 0
                 else:
-                    params[i].append(0.0)
-                params[i].append(i)  # order
+                    p.calc_percent = 0.0
+                p.original_order = i
 
             core_percent = 100.0 / number_of_free_cores
             while True:  # TODO: there must be a better way :(
-                params = sorted(params, key=lambda x: -x[4])
-                for i, (_, _, _, _, perc, _) in enumerate(params):
-                    if perc <= 0.0:
+                params = sorted(params, key=lambda p: -p.calc_percent)
+                for p in params:
+                    if p.calc_percent <= 0.0:
                         continue
-                    params[i][4] -= core_percent
+                    p.calc_percent -= core_percent
                     percsum -= core_percent
-                    params[i][2] += 1
+                    p.count += 1
                     if percsum <= core_percent:
                         break
                 if percsum <= core_percent:
                     break
 
+            for p in params:
+                p.is_percent = False
+
             # sanity check
-            number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
+            not_enough_cores = any(p.count < 1 for p in params)
+            if not_enough_cores:
+                raise FuzzaideException(
+                    "Error in --builds argument: not enough processor cores to fit all the specified builds"
+                )
+
+            number_of_used_cores = sum(p.count or 0 for p in params)
             if number_of_used_cores != num_instances:
                 if verbose:
                     print(
                         "Math in fuzzman is janky! Fixing error with delta of %d cores"
                         % (number_of_used_cores - num_instances,)
                     )
-                params = sorted(params, key=lambda x: -x[4])
-                params[0][2] -= number_of_used_cores - num_instances
+                params = sorted(params, key=lambda p: -p.calc_percent)
+                params[0].count -= number_of_used_cores - num_instances
                 if verbose:
                     pprint(params)
 
-                number_of_used_cores = sum(c for _, _, c, _, _, _ in params)
+                number_of_used_cores = sum(p.count or 0 for p in params)
                 if number_of_used_cores != num_instances:
                     raise FuzzaideException(
                         "Math in fuzzman is really janky! Error with delta of %d cores! "
@@ -270,13 +301,9 @@ class FuzzManager:
                         % (number_of_used_cores - num_instances,)
                     )
 
-            params = sorted(params, key=lambda x: x[5])  # return original order
+            params = sorted(params, key=lambda p: p.original_order)
 
-        params = list(
-            map(lambda x: x[0:3], params)
-        )  # leave only name, path and number of cores
-
-        number_of_used_cores = sum(c for _, _, c in params)
+        number_of_used_cores = sum(p.count or 0 for p in params)
         if were_cores_specified and number_of_used_cores != num_instances:
             raise FuzzaideException(
                 "Error in --builds argument: less cores specified in --builds (%d) than in -n (%d)"
@@ -291,11 +318,11 @@ class FuzzManager:
 
         return params
 
-    def load_custom_cmds(self, path):
+    def load_custom_cmds(self, path: str) -> List[List[str]]:
         """
         Load custom fuzzer commands from file specified by path.
         Returns list of commands to run instead of fuzzman-generated commands.
-        Each element in result list is [worker_name, command]
+        Each element in result list is [worker_name: str, command: str]
         """
 
         cmds = []
@@ -310,7 +337,7 @@ class FuzzManager:
             if len(line) < 1 or line[0] == "#":
                 continue
 
-            cmd = line.split(":", 1)
+            cmd = line.split(":")
             if len(cmd) != 2:
                 sys.exit(
                     "Error: bad command in file %s: %s\nCorrect format:\n  name : command"
@@ -329,7 +356,7 @@ class FuzzManager:
                 worker.append(s)
 
             if self.args.verbose:
-                print("Loaded custom command: %s" % worker)
+                print("Loaded custom command %s" % (*worker,))
 
             cmds.append(worker)
 
@@ -356,7 +383,7 @@ class FuzzManager:
 
         return cmds
 
-    def start(self, env=None):
+    def start(self, env: Optional[Dict[str, str]] = None) -> None:
         """
         Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file).
         Exits the program on errors.
@@ -432,12 +459,21 @@ class FuzzManager:
         used_builds = []
         if complex_mode:
             try:
-                params = self.extract_complex_mode_params(user_builds=args.builds, program=args.program[0], verbose=args.verbose)
+                params = self.extract_complex_mode_params(
+                    user_builds=args.builds,
+                    program=args.program[0],
+                    verbose=args.verbose,
+                )
                 if args.verbose:
                     print('"Raw" params:')
                     pprint(params)
 
-                params = self.adjust_complex_mode_params(params=params, num_instances=args.instances, were_cores_specified=self.cores_specified, verbose=args.verbose)
+                params = self.adjust_complex_mode_params(
+                    params=params,
+                    num_instances=args.instances,
+                    were_cores_specified=self.cores_specified,
+                    verbose=args.verbose,
+                )
                 if args.verbose:
                     print("Adjusted params:")
                     pprint(params)
@@ -533,7 +569,7 @@ class FuzzManager:
 
         self.start_time = int(time())
 
-    def stop(self, grace_sig=signal.SIGINT):
+    def stop(self, grace_sig=signal.SIGINT) -> None:
         """
         Stop all fuzzer workers
         """
@@ -561,7 +597,7 @@ class FuzzManager:
             proc.stop(force=True)
         self.procs = []
 
-    def health_check(self):
+    def health_check(self) -> bool:
         """
         Check if fuzzer workers are still running, also print each worker status
         """
@@ -575,7 +611,7 @@ class FuzzManager:
         print("%d/%d workers report OK status" % (num_ok, len(self.procs)))
         return num_ok > 0
 
-    def display_next_status_screen(self, outfile=sys.stdout, static_dump=False):
+    def display_next_status_screen(self, outfile=sys.stdout, static_dump=False) -> None:
         """
         Show interactive status screen of one fuzzer for approximately 5 seconds
         """
@@ -640,10 +676,10 @@ class FuzzManager:
             self.last_shown_screen_idx %= len(self.procs)
 
     @staticmethod
-    def is_process_still_running(proc):
+    def is_process_still_running(proc) -> bool:
         return proc.poll() is None
 
-    def dump_status_screens(self, outfile=sys.stdout):
+    def dump_status_screens(self, outfile=sys.stdout) -> None:
         """
         Print status screens of all fuzzer instances
         """
@@ -658,7 +694,9 @@ class FuzzManager:
 
         outbuf.write(b"\n\n")
 
-    def get_fuzzer_stats(self, output_dir, idx, instance):
+    def get_fuzzer_stats(
+        self, output_dir: str, idx: int, instance
+    ) -> Optional[Dict[str, str]]:
         """
         Form a dictionary from fuzzer_stats file of given fuzzer instance
         """
@@ -715,7 +753,11 @@ class FuzzManager:
         return stats
 
     @staticmethod
-    def update_stat_timestamp(stats_dict, stat_name, saved_newest_stamp):
+    def update_stat_timestamp(
+        stats_dict: Dict[str, Union[int, str, float]],
+        stat_name: str,
+        saved_newest_stamp: int,
+    ) -> int:
         """
         Use this method to update last (newest) path (crash, hang, etc) timestamp.
         Example: newest_path_stamp = update_stat_timestamp(stats, "last_path", newest_path_stamp)
@@ -737,7 +779,7 @@ class FuzzManager:
         return saved_newest_stamp
 
     @staticmethod
-    def format_seconds(seconds):
+    def format_seconds(seconds: int) -> str:
         """
         Returns time in AFL-like format: days, hrs, min, sec
         """
@@ -756,7 +798,7 @@ class FuzzManager:
 
         return "%d sec" % (s,)
 
-    def job_status_check(self, onlystats=False):
+    def job_status_check(self, onlystats=False) -> bool:
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
         """

@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Union
 
-from fuzzaide.tools.fuzzman.fuzzman import FuzzManager
+from fuzzaide.tools.fuzzman.fuzzman import FuzzManager, BuildSpecType
 from fuzzaide.common.exception import FuzzaideException
 
-import os
+from pprint import pprint
 import logging
 
 log = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ adjust = FuzzManager.adjust_complex_mode_params
 
 OS_PATH_MOCK_PATH = "fuzzaide.tools.fuzzman.fuzzman.os.path"
 WHICH_MOCK_PATH = "fuzzaide.tools.fuzzman.fuzzman.which"
+CPU_COUNT_MOCK_PATH = "multiprocessing.cpu_count"
 
 testdata_extract_parse = [
     # fmt: off
@@ -46,7 +47,9 @@ def test_extract_complex_mode_params_parse(
     mocker.patch(OS_PATH_MOCK_PATH + ".isfile", return_value=True)
     mocker.patch(OS_PATH_MOCK_PATH + ".isdir", return_value=False)
     mocker.patch(WHICH_MOCK_PATH, lambda x: x)
-    assert extract(user_builds=builds, program=program, verbose=True) == expected
+    bsps = extract(user_builds=builds, program=program, verbose=True)
+    bsps_list = [[b.name, b.path, b.count, b.is_percent] for b in bsps]
+    assert bsps_list == expected
 
 
 testdata_extract_files_dirs_invalid = [
@@ -110,3 +113,64 @@ def test_extract_complex_mode_params_files_dirs_ok(
     builds = ["a/p", "b/p"]
     program = "p"
     assert extract(user_builds=builds, program=program, verbose=True)
+
+
+testdata_adjust_complex_mode_params = [
+    # fmt: off
+    (100, [["a", "a/p", None, False], ["b", "b/p", 15, True], ["c", "c/p", 10, True]], [["a", "a/p", 75, False], ["b", "b/p", 15, False], ["c", "c/p", 10, False]]),
+    (100, [["a", "a/p", None, False], ["b", "b/p", 50, True], ["c", "c/p", 5, True]], [["a", "a/p", 45, False], ["b", "b/p", 50, False], ["c", "c/p", 5, False]]),
+    (100, [["a", "a/p", None, False], ["b", "b/p", None, True], ["c", "c/p", 10, True]], [["a", "a/p", 45, False], ["b", "b/p", 45, False], ["c", "c/p", 10, False]]),
+    (100, [["a", "a/p", None, False], ["b", "b/p", 1, False], ["c", "c/p", 1, False]], [["a", "a/p", 98, False], ["b", "b/p", 1, False], ["c", "c/p", 1, False]]),
+    (100, [["a", "a/p", 10, True], ["b", "b/p", 1, False], ["c", "c/p", 1, False]], [["a", "a/p", 98, False], ["b", "b/p", 1, False], ["c", "c/p", 1, False]]),
+    (100, [["a", "a/p", None, False], ["b", "b/p", None, False], ["c", "c/p", None, False]], [["a", "a/p", 34, False], ["b", "b/p", 33, False], ["c", "c/p", 33, False]]),
+    # fmt: on
+]
+
+
+@pytest.mark.parametrize(
+    "num_instances, bsp_list, adjusted_list",
+    testdata_adjust_complex_mode_params,
+)
+def test_adjust_complex_mode_params(
+    mocker: MockerFixture,
+    num_instances: int,
+    bsp_list: List[List[Union[str, int, float, None]]],
+    adjusted_list: List[List[Union[str, int, float, None]]],
+) -> None:
+    mocker.patch(CPU_COUNT_MOCK_PATH, num_instances)
+    bsp = [BuildSpecType(*b) for b in bsp_list]  # pyright: ignore
+    adjusted_bsp = adjust(
+        params=bsp, num_instances=num_instances, were_cores_specified=True
+    )
+    adjusted_list_actual = [
+        [b.name, b.path, b.count, b.is_percent] for b in adjusted_bsp
+    ]
+    assert adjusted_list_actual == adjusted_list
+
+
+testdata_adjust_complex_mode_params_bad = [
+    # fmt: off
+    (100, [["a", "a/p", 100, False], ["b", "b/p", 15, True], ["c", "c/p", 10, True]]),
+    (100, [["a", "a/p", 99, False], ["b", "b/p", 15, True], ["c", "c/p", 10, True]]),
+    (2, [["a", "a/p", 1, False], ["b", "b/p", 1, False], ["c", "c/p", 1, False]]),
+    (2, [["a", "a/p", None, False], ["b", "b/p", None, False], ["c", "c/p", None, False]]),
+    (2, [["a", "a/p", 33.3, True], ["b", "b/p", 33.3, True], ["c", "c/p", 33.3, True]]),
+    # fmt: on
+]
+
+
+@pytest.mark.parametrize(
+    "num_instances, bsp_list",
+    testdata_adjust_complex_mode_params_bad,
+)
+def test_adjust_complex_mode_params_bad(
+    mocker: MockerFixture,
+    num_instances: int,
+    bsp_list: List[List[Union[str, int, float, None]]],
+) -> None:
+    mocker.patch(CPU_COUNT_MOCK_PATH, num_instances)
+    bsp = [BuildSpecType(*b) for b in bsp_list]  # pyright: ignore
+    with pytest.raises(FuzzaideException):
+        pprint(adjust(
+            params=bsp, num_instances=num_instances, were_cores_specified=True
+        ))
