@@ -81,6 +81,7 @@ class FuzzManager:
             else:
                 count = int(amount)
         except ValueError:
+            # XXX: need to raise an exception here
             sys.exit(
                 "Error in --builds argument: '%s' is not convertible to number of instances (examples: 3, 66.6%%)"
                 % (amount,)
@@ -94,7 +95,7 @@ class FuzzManager:
     ) -> List[BuildSpecType]:
         """
         Iterate over --builds arguments and extract group name, path, number/percent of cpu cores.
-        Raises FuzzaideException on errors.
+        Raise FuzzaideException on errors.
         """
 
         params: List[BuildSpecType] = []
@@ -140,9 +141,8 @@ class FuzzManager:
     @staticmethod
     def extract_one_spec_complex_params(build_spec: str) -> BuildSpecType:
         """
-        XXX: this comment
-        Parse one `build_spec` string, return [name: str | None, path: str, count: int | float | None, is_percent: bool | None].
-        Raises FuzzaideException on errors.
+        Parse one `build_spec` string and return BuildSpecType.
+        Raise FuzzaideException on errors.
         """
         bspec = build_spec.split(":")  # 0:1:2 -> NAME:PATH:N[%]
         num_spec_parts = len(bspec)
@@ -171,7 +171,6 @@ class FuzzManager:
         if path.startswith("~"):
             path = os.path.expanduser(path)
 
-        # return [name, path, count, perc]
         return BuildSpecType(name=name, path=path, count=count, is_percent=perc)
 
     @staticmethod
@@ -184,9 +183,11 @@ class FuzzManager:
         """
         For complex mode (--builds). Converts percent ratios to number of instances
         and makes sure that each build is used at least once.
-        params is a list of 4-item lists: name, path, count/percent, is_percent.
         Raises FuzzaideException on errors.
         """
+
+        # XXX: I don't see straightforward ways to fix the complexity of this code.
+        # Just hide it in some other module?
 
         # sum percents as specified by user
         percsum = 0.0
@@ -321,13 +322,14 @@ class FuzzManager:
     def load_custom_cmds(self, path: str) -> List[List[str]]:
         """
         Load custom fuzzer commands from file specified by path.
-        Returns list of commands to run instead of fuzzman-generated commands.
+        Return list of commands to run instead of fuzzman-generated commands.
         Each element in result list is [worker_name: str, command: str]
+        Raise FuzzaideException in case of errors.
         """
 
         cmds = []
         if not os.path.isfile(path):
-            sys.exit("Error: file '%s' doesn't exist or it's not a file" % path)
+            raise FuzzaideException(f"file '{path}' doesn't exist or it's not a file")
 
         with open(path, "rt") as f:
             lines = f.readlines()
@@ -339,18 +341,14 @@ class FuzzManager:
 
             cmd = line.split(":")
             if len(cmd) != 2:
-                sys.exit(
-                    "Error: bad command in file %s: %s\nCorrect format:\n  name : command"
-                    % (path, line)
-                )
+                raise FuzzaideException("bad command in file '{path}': '{line}'\nThe correct format:\n  name : command")
 
             worker = []
             for s in cmd:
                 s = s.strip()
                 if len(s) < 1:
-                    sys.exit(
-                        "Error: empty worker name or command in file %s: %s\nCorrect format:\n  name : command"
-                        % (path, line)
+                    raise FuzzaideException(
+                        f"empty worker name or command in file '{path}': '{line}'\nThe correct format:\n  name : command"
                     )
 
                 worker.append(s)
@@ -362,23 +360,22 @@ class FuzzManager:
 
         # some sanity checks
         if len(cmds) < 1:
-            sys.exit("Error: custom commands file doesn't contain any commands to run")
+            raise FuzzaideException("custom commands file doesn't contain any commands to run")
 
         unique_names = set(name for name, _ in cmds)
         if len(unique_names) < len(cmds):
-            sys.exit("Error: custom commands file shouldn't contain duplicate names")
+            raise FuzzaideException("custom commands file contains duplicate names")
 
         if not self.args.cmd_file_allow_duplicates:
             unique_cmds = set(cmd for _, cmd in cmds)
             if len(unique_cmds) < len(cmds):
-                sys.exit(
-                    "Error: custom commands file shouldn't contain duplicate commands (use --cmd-file-allow-duplicates to override)"
+                raise FuzzaideException(
+                    "custom commands file contains duplicate commands (use --cmd-file-allow-duplicates to allow it)"
                 )
 
         if self.cores_specified and self.args.instances != len(cmds):
-            sys.exit(
-                "Error: you have specified number of cores = %d but custom commands file %s contains %d commands"
-                % (self.args.instances, path, len(cmds))
+            raise FuzzaideException(
+                f"you have specified number of cores = {self.args.instances} but custom commands file '{path}' contains {len(cmds)} commands"
             )
 
         return cmds
@@ -386,7 +383,7 @@ class FuzzManager:
     def start(self, env: Optional[Dict[str, str]] = None) -> None:
         """
         Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file).
-        Exits the program on errors.
+        Exit the program on errors.
         """
 
         if self.args.instances is None:
@@ -433,7 +430,11 @@ class FuzzManager:
                 )
 
         if args.cmd_file is not None:
-            custom_cmds = self.load_custom_cmds(args.cmd_file)
+            try:
+                custom_cmds = self.load_custom_cmds(args.cmd_file)
+            except FuzzaideException as e:
+                sys.exit(f"Error loading custom cmds from file: {e}")
+
             for i, (worker_name, cmd) in enumerate(custom_cmds):
                 worker_env = os.environ.copy()
                 worker_env["AFL_FORCE_UI"] = "1"
@@ -480,8 +481,8 @@ class FuzzManager:
             except FuzzaideException as e:
                 sys.exit(f"Error: {e}")
 
-            for name, path, num_cores in params:
-                used_builds.extend([[name, path]] * num_cores)
+            for p in params:
+                used_builds.extend([[p.name, p.path]] * p.count)
         else:  # normal run mode
             if which(args.program[0]) is None:
                 sys.exit("File %s not found so it cannot be tested" % args.program[0])
@@ -491,7 +492,8 @@ class FuzzManager:
             print("Builds in use:")
             pprint(used_builds)
 
-        # TODO: maybe split this method for basic and complex modes?
+        # XXX: this needs to be split into multiple methods. This madness has to stop!
+
         if args.dump_cmd_file:
             print("# Fuzzer commands for use with --cmd-file option of fuzzman")
 
@@ -701,6 +703,8 @@ class FuzzManager:
         Form a dictionary from fuzzer_stats file of given fuzzer instance
         """
 
+        # XXX: the return type Optional[Dict] has to go
+
         if instance.name is None or len(instance.name) < 1:
             print(
                 "Wasn't able to get stats of instance #%d because somehow it has no name"
@@ -762,6 +766,7 @@ class FuzzManager:
         Use this method to update last (newest) path (crash, hang, etc) timestamp.
         Example: newest_path_stamp = update_stat_timestamp(stats, "last_path", newest_path_stamp)
         """
+        # XXX: this method needs a better name
 
         stamp = stats_dict.get(stat_name)
 
@@ -783,6 +788,7 @@ class FuzzManager:
         """
         Returns time in AFL-like format: days, hrs, min, sec
         """
+        # XXX: move this method to a separate module
 
         s = seconds % 60
         m = (seconds // 60) % 60
@@ -802,6 +808,7 @@ class FuzzManager:
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
         """
+        # XXX: this is an insanely long method doing all sorts of things
 
         output_dir = self.args.output_dir
         if output_dir is None or len(output_dir) < 1:
