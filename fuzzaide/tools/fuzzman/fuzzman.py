@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from multiprocessing import cpu_count
 
 from fuzzaide.common import which
+from fuzzaide.common import format_tools as ft
 from fuzzaide.common.exception import FuzzaideException
 from fuzzaide.common.fuzz_stats import is_afl_fuzzer_stats_old, get_afl_stat_name
 from .args import get_launch_args
@@ -67,10 +68,11 @@ class FuzzManager:
         self.num_from_file = 0
 
     @staticmethod
-    def extract_instance_count_or_exit(amount: str) -> Tuple[Union[int, float], bool]:
+    def extract_instance_count(amount: str) -> Tuple[Union[int, float], bool]:
         """
         Gets number of instances from strings like "5", "10%" or "66.6%".
         Returns: (value, is_percent)
+        Raises FuzzaideException on errors.
         """
 
         count = 0
@@ -80,12 +82,10 @@ class FuzzManager:
                 count = float(amount.split("%", 1)[0])
             else:
                 count = int(amount)
-        except ValueError:
-            # XXX: need to raise an exception here
-            sys.exit(
-                "Error in --builds argument: '%s' is not convertible to number of instances (examples: 3, 66.6%%)"
-                % (amount,)
-            )
+        except ValueError as e:
+            raise FuzzaideException(
+                f"Error in --builds argument: '{amount}' is not convertible to number of instances (examples: 3, 66.6%)"
+            ) from e
 
         return count, perc
 
@@ -155,14 +155,14 @@ class FuzzManager:
         elif num_spec_parts == 2:
             if "%" in bspec[1] or bspec[1].isnumeric():
                 path = bspec[0]
-                count, perc = FuzzManager.extract_instance_count_or_exit(bspec[1])
+                count, perc = FuzzManager.extract_instance_count(bspec[1])
             else:
                 name = bspec[0]
                 path = bspec[1]
         elif num_spec_parts == 3:
             name = bspec[0]
             path = bspec[1]
-            count, perc = FuzzManager.extract_instance_count_or_exit(bspec[2])
+            count, perc = FuzzManager.extract_instance_count(bspec[2])
         else:
             raise FuzzaideException(
                 "Error in --builds argument: format of one build is [NAME:]<dir/bin path>[:N[%]] (examples: -h/--help)"
@@ -341,7 +341,9 @@ class FuzzManager:
 
             cmd = line.split(":")
             if len(cmd) != 2:
-                raise FuzzaideException("bad command in file '{path}': '{line}'\nThe correct format:\n  name : command")
+                raise FuzzaideException(
+                    "bad command in file '{path}': '{line}'\nThe correct format:\n  name : command"
+                )
 
             worker = []
             for s in cmd:
@@ -360,7 +362,9 @@ class FuzzManager:
 
         # some sanity checks
         if len(cmds) < 1:
-            raise FuzzaideException("custom commands file doesn't contain any commands to run")
+            raise FuzzaideException(
+                "custom commands file doesn't contain any commands to run"
+            )
 
         unique_names = set(name for name, _ in cmds)
         if len(unique_names) < len(cmds):
@@ -383,7 +387,8 @@ class FuzzManager:
     def start(self, env: Optional[Dict[str, str]] = None) -> None:
         """
         Start instances either in normal mode, complex mode (--builds) or custom commands mode (--cmd-file).
-        Exit the program on errors.
+        Exits the program if we were requested to just dump cmds (--dump-cmd-file).
+        Raises FuzzaideException on errors.
         """
 
         if self.args.instances is None:
@@ -398,17 +403,19 @@ class FuzzManager:
             args.instances = 1
 
         if which(args.fuzzer_binary) is None:
-            sys.exit(
-                "File %s not found so it cannot be used as fuzzer" % args.fuzzer_binary
+            raise FuzzaideException(
+                f"File '{args.fuzzer_binary}' was not found so it cannot be used as fuzzer"
             )
 
         if not os.path.exists(args.input_dir):
             try:
                 os.makedirs(args.input_dir)
-            except OSError:
-                sys.exit("Can't create input directory %s" % args.input_dir)
+            except OSError as e:
+                raise FuzzaideException(
+                    f"Can't create input directory '{args.input_dir}'"
+                ) from e
         elif not os.path.isdir(args.input_dir):
-            sys.exit("Can't use %s as input directory" % args.input_dir)
+            raise FuzzaideException(f"Can't use '{args.input_dir}' as input directory")
 
         if len(glob.glob(os.path.join(args.input_dir, "*"))) < 1:
             path = os.path.join(args.input_dir, "1")
@@ -417,23 +424,25 @@ class FuzzManager:
             try:
                 with open(path, "w") as f:
                     f.write("12345")
-            except OSError:
-                sys.exit("Wasn't able to create input corpus")
+            except OSError as e:
+                raise FuzzaideException("Wasn't able to create input corpus") from e
 
         if args.cleanup and os.path.isdir(args.output_dir):
             print("Removing directory '%s'" % args.output_dir, file=sys.stderr)
             try:
                 shutil.rmtree(args.output_dir, ignore_errors=True)
-            except shutil.Error:
-                sys.exit(
-                    "Wasn't able to remove output directory '%s'" % args.output_dir
-                )
+            except OSError as e:
+                raise FuzzaideException(
+                    f"Wasn't able to remove output directory '{args.output_dir}'"
+                ) from e
 
         if args.cmd_file is not None:
             try:
                 custom_cmds = self.load_custom_cmds(args.cmd_file)
             except FuzzaideException as e:
-                sys.exit(f"Error loading custom cmds from file: {e}")
+                raise FuzzaideException(
+                    f"Error loading custom cmds from file: {e}"
+                ) from e
 
             for i, (worker_name, cmd) in enumerate(custom_cmds):
                 worker_env = os.environ.copy()
@@ -459,33 +468,32 @@ class FuzzManager:
         params = []
         used_builds = []
         if complex_mode:
-            try:
-                params = self.extract_complex_mode_params(
-                    user_builds=args.builds,
-                    program=args.program[0],
-                    verbose=args.verbose,
-                )
-                if args.verbose:
-                    print('"Raw" params:')
-                    pprint(params)
+            params = self.extract_complex_mode_params(
+                user_builds=args.builds,
+                program=args.program[0],
+                verbose=args.verbose,
+            )
+            if args.verbose:
+                print('"Raw" params:')
+                pprint(params)
 
-                params = self.adjust_complex_mode_params(
-                    params=params,
-                    num_instances=args.instances,
-                    were_cores_specified=self.cores_specified,
-                    verbose=args.verbose,
-                )
-                if args.verbose:
-                    print("Adjusted params:")
-                    pprint(params)
-            except FuzzaideException as e:
-                sys.exit(f"Error: {e}")
+            params = self.adjust_complex_mode_params(
+                params=params,
+                num_instances=args.instances,
+                were_cores_specified=self.cores_specified,
+                verbose=args.verbose,
+            )
+            if args.verbose:
+                print("Adjusted params:")
+                pprint(params)
 
             for p in params:
                 used_builds.extend([[p.name, p.path]] * p.count)
         else:  # normal run mode
             if which(args.program[0]) is None:
-                sys.exit("File %s not found so it cannot be tested" % args.program[0])
+                raise FuzzaideException(
+                    f"File '{args.program[0]}' not found so it cannot be tested"
+                )
             used_builds = [[None, args.program[0]]] * args.instances
 
         if args.verbose:
@@ -783,27 +791,6 @@ class FuzzManager:
 
         return saved_newest_stamp
 
-    @staticmethod
-    def format_seconds(seconds: int) -> str:
-        """
-        Returns time in AFL-like format: days, hrs, min, sec
-        """
-        # XXX: move this method to a separate module
-
-        s = seconds % 60
-        m = (seconds // 60) % 60
-        h = (seconds // 3600) % 24
-        d = seconds // 86400
-
-        if d > 0:
-            return "%d days, %d hrs, %d min, %d sec" % (d, h, m, s)
-        elif h > 0:
-            return "%d hrs, %d min, %d sec" % (h, m, s)
-        elif m > 0:
-            return "%d min, %d sec" % (m, s)
-
-        return "%d sec" % (s,)
-
     def job_status_check(self, onlystats=False) -> bool:
         """
         Enumerate fuzzer_stats files, print stats, return True if stopping required
@@ -891,49 +878,31 @@ class FuzzManager:
 
         print("\nStats of this fuzzing job:")
         job_duration = int(time()) - self.start_time
-        print("Duration: %s" % (self.format_seconds(job_duration),))
+        print("Duration: %s" % (ft.format_seconds_afl_like(job_duration),))
 
         if newest_path_stamp == 0:
             if not onlystats:
                 print("\nNo more stats to display (yet)")
             return False
 
-        e = float(sum_execs)
-        c = ""
-        if e >= 1000000000:
-            e /= 1000000000
-            c = "B"
-        elif e >= 1000000:
-            e /= 1000000
-            c = "M"
-        elif e >= 1000:
-            e /= 1000
-            c = "K"
-
-        if len(c) > 0:
-            if c == "B":
-                print("   Execs: %.4f%c" % (e, c))
-            else:
-                print("   Execs: %.2f%c" % (e, c))
-        else:
-            print("   Execs: %.0f" % (e,))
+        print(f"   Execs: {ft.format_big_stat_number(sum_execs)}")
 
         now = int(time())
 
         newest_path_delta = now - newest_path_stamp
-        newest_path_fmt = self.format_seconds(newest_path_delta)
+        newest_path_fmt = ft.format_seconds_afl_like(newest_path_delta)
         print("   Paths: %d.\tLast new path: %s ago" % (sum_paths, newest_path_fmt))
 
         if sum_hangs > 0:
             delta = now - newest_hang_stamp
-            seconds_fmt = self.format_seconds(delta)
+            seconds_fmt = ft.format_seconds_afl_like(delta)
             print("   Hangs: %d.\tLast new hang: %s ago" % (sum_hangs, seconds_fmt))
         else:
             print("   Hangs: 0")
 
         if sum_crashes > 0:
             delta = now - newest_crash_stamp
-            seconds_fmt = self.format_seconds(delta)
+            seconds_fmt = ft.format_seconds_afl_like(delta)
             print(" Crashes: %d.\tLast new crash: %s ago" % (sum_crashes, seconds_fmt))
         else:
             print(" Crashes: 0")
@@ -962,7 +931,7 @@ def main():
     retcode = 7
     fuzzman = FuzzManager(args)
 
-    stdoutbuf = getattr(sys.stdout, "buffer", sys.stdout)
+    stdoutbuf = sys.stdout.buffer
 
     def handler(_signo, _stack_frame):
         stdoutbuf.write(bSTOP + cRST + RESET_G1 + CURSOR_SHOW)
